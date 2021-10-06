@@ -41,7 +41,7 @@ def get_domain_computers(target_dn, ldap_server, ldap_session):
     return results
 
 def parse_args():
-    parser = argparse.ArgumentParser(add_help=True, description='Python (re)setter for property msDS-KeyCredentialLink for Shadow Credentials attacks.')
+    parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
     parser.add_argument('-ts', action='store_true', help='Adds timestamp to every logging output')
     parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="show no information at all")
