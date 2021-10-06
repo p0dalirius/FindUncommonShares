@@ -6,61 +6,52 @@ The script [FindUncommonShares.py](https://github.com/p0dalirius/FindUncommonSha
 
 ## Usage
 
-```
-$ ./FindUncommonShares.py                                     
-Impacket v0.9.23 - Copyright 2021 SecureAuth Corporation
+```              
+$ ./FindUncommonShares.py -h                                                                  
+Impacket v0.9.24.dev1+20210906.175840.50c76958 - Copyright 2021 SecureAuth Corporation
 
-usage: FindUncommonShares.py [-h] [-xmlfile XMLFILE] [-share SHARE]
-                             [-base-dir BASE_DIR] [-ts] [-debug]
-                             [-hashes LMHASH:NTHASH] [-no-pass] [-k]
-                             [-aesKey hex key] [-dc-ip ip address]
-                             [-target-ip ip address]
-                             [-port [destination port]]
-                             target
+usage: FindUncommonShares.py [-h] [-ts] [--use-ldaps] [-q] [-debug] [--dc-ip ip address] [-d DOMAIN] [-u USER]
+                             [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
 
-Find uncommon SMB shares on remote machines
-
-positional arguments:
-  target                [[domain/]username[:password]@]<targetName or address>
+Find uncommon SMB shares on remote machines.
 
 optional arguments:
   -h, --help            show this help message and exit
   -ts                   Adds timestamp to every logging output
-  -debug                Turn DEBUG output ON
+  --use-ldaps           Use LDAPS instead of LDAP
+  -q, --quiet           show no information at all
+  -debug                Debug mode
 
-authentication:
-  -hashes LMHASH:NTHASH
-                        NTLM hashes, format is LMHASH:NTHASH
-  -no-pass              don't ask for password (useful for -k)
-  -k                    Use Kerberos authentication. Grabs credentials from
-                        ccache file (KRB5CCNAME) based on target parameters.
-                        If valid credentials cannot be found, it will use the
-                        ones specified in the command line
-  -aesKey hex key       AES key to use for Kerberos Authentication (128 or 256
-                        bits)
+authentication & connection:
+  --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN)
+                        specified in the identity parameter
+  -d DOMAIN, --domain DOMAIN
+                        (FQDN) domain to authenticate to
+  -u USER, --user USER  user to authenticate with
 
-connection:
-  -dc-ip ip address     IP Address of the domain controller. If omitted it
-                        will use the domain part (FQDN) specified in the
-                        target parameter
-  -target-ip ip address
-                        IP Address of the target machine. If omitted it will
-                        use whatever was specified as target. This is useful
-                        when target is the NetBIOS name and you cannot resolve
-                        it
-  -port [destination port]
-                        Destination port to connect to SMB Server
+  --no-pass             don't ask for password (useful for -k)
+  -p PASSWORD, --password PASSWORD
+                        password to authenticate with
+  -H [LMHASH:]NTHASH, --hashes [LMHASH:]NTHASH
+                        NT/LM hashes, format is LMhash:NThash
+  --aes-key hex key     AES key to use for Kerberos Authentication (128 or 256 bits)
+  -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials
+                        cannot be found, it will use the ones specified in the command line                        
 ```
 
 ## Examples :
 
 ```
-[]$ ./FindUncommonShares.py 'LAB.local/user1:PR123!@192.168.2.1' 
-Impacket v0.9.23 - Copyright 2021 SecureAuth Corporation
+[]$ ./FindUncommonShares.py -u 'Administrator' -d 'LAB.local' -p 'Admin123!' --dc-ip 192.168.2.1
+Impacket v0.9.24.dev1+20210906.175840.50c76958 - Copyright 2021 SecureAuth Corporation
 
-[>] Found uncommon shares!
- - 'Users'
- - 'WeirdShare'
+[>] Extracting all computers ...
+[+] Found 2 computers.
+[>] Enumerating shares ...
+[>] Found uncommon share 'Users' on 'DC01.LAB.local'
+[>] Found uncommon share 'WeirdShare' on 'DC01.LAB.local'
+[>] Found uncommon share 'AnotherShare' on 'PC01.LAB.local'
+[>] Found uncommon share 'Users' on 'PC01.LAB.local
 []$
 ```
 
