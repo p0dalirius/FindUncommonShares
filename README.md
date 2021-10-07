@@ -62,10 +62,20 @@ Impacket v0.9.24.dev1+20210906.175840.50c76958 - Copyright 2021 SecureAuth Corpo
 Results are exported in JSON:
 
 ```json
-{"sharename": "AnotherShare", "uncpath": "\\\\192.168.2.11\\AnotherShare\\", "computer": "PC01.LAB.local"}
-{"sharename": "Users", "uncpath": "\\\\192.168.2.11\\Users\\", "computer": "PC01.LAB.local"}
-{"sharename": "Users", "uncpath": "\\\\192.168.2.1\\Users\\", "computer": "DC01.LAB.local"}
-{"sharename": "WeirdShare", "uncpath": "\\\\192.168.2.1\\WeirdShare\\", "computer": "DC01.LAB.local"}
+{
+  "sharename": "AnotherShare",
+  "uncpath": "\\\\192.168.2.11\\AnotherShare\\",
+  "computer": "PC01.LAB.local",
+  "comment": "",
+  "type": {
+    "stype_value": 0,
+    "stype_flags": [
+      "STYPE_DISKTREE",
+      "STYPE_SPECIAL",
+      "STYPE_TEMPORARY"
+    ]
+  }
+}
 ```
 
 ## Credits
