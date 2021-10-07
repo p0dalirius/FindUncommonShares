@@ -19,6 +19,7 @@ import sys
 import traceback
 import logging
 import threading
+from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 from impacket import version
 from impacket.examples import logger, utils
@@ -28,10 +29,48 @@ import nslookup
 import json
 import time
 
-
 COMMON_SHARES = [
     "ADMIN$", "IPC$", "C$", "NETLOGON", "SYSVOL"
 ]
+
+
+def STYPE_MASK(stype_value):
+    known_flags = {
+        ## One of the following values may be specified. You can isolate these values by using the STYPE_MASK value.
+        # Disk drive.
+        "STYPE_DISKTREE": 0x0,
+
+        # Print queue.
+        "STYPE_PRINTQ": 0x1,
+
+        # Communication device.
+        "STYPE_DEVICE": 0x2,
+
+        # Interprocess communication (IPC).
+        "STYPE_IPC": 0x3,
+
+        ## In addition, one or both of the following values may be specified.
+        # Special share reserved for interprocess communication (IPC$) or remote administration of the server (ADMIN$).
+        # Can also refer to administrative shares such as C$, D$, E$, and so forth. For more information, see Network Share Functions.
+        "STYPE_SPECIAL": 0x80000000,
+
+        # A temporary share.
+        "STYPE_TEMPORARY": 0x40000000
+    }
+    flags = []
+    if (stype_value & 0b11) == known_flags["STYPE_DISKTREE"]:
+        flags.append("STYPE_DISKTREE")
+    elif (stype_value & 0b11) == known_flags["STYPE_PRINTQ"]:
+        flags.append("STYPE_PRINTQ")
+    elif (stype_value & 0b11) == known_flags["STYPE_DEVICE"]:
+        flags.append("STYPE_DEVICE")
+    elif (stype_value & 0b11) == known_flags["STYPE_IPC"]:
+        flags.append("STYPE_IPC")
+    if (stype_value & known_flags["STYPE_SPECIAL"]) == 0:
+        flags.append("STYPE_SPECIAL")
+    if (stype_value & known_flags["STYPE_TEMPORARY"]) == 0:
+        flags.append("STYPE_TEMPORARY")
+    return flags
 
 
 def get_domain_computers(target_dn, ldap_server, ldap_session):
@@ -55,7 +94,6 @@ def parse_args():
     parser.add_argument("-debug", dest="debug", action="store_true", default=False, help="Debug mode")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=5, required=False, help="Number of threads (default: 5)")
     parser.add_argument("-o", "--output-file", dest="output_file", type=str, default="shares.json", required=False, help="Output file to store the results in. (default: shares.json)")
-
 
     authconn = parser.add_argument_group('authentication & connection')
     authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
@@ -113,7 +151,7 @@ def init_ldap_connection(target, tls_version, args, domain, username, password, 
     elif args.auth_hashes is not None:
         if lmhash == "":
             lmhash = "aad3b435b51404eeaad3b435b51404ee"
-        ldap_session = ldap3.Connection(ldap_server, user=user, password=lmhash+":"+nthash, authentication=ldap3.NTLM, auto_bind=True)
+        ldap_session = ldap3.Connection(ldap_server, user=user, password=lmhash + ":" + nthash, authentication=ldap3.NTLM, auto_bind=True)
     else:
         ldap_session = ldap3.Connection(ldap_server, user=user, password=password, authentication=ldap3.NTLM, auto_bind=True)
 
@@ -339,24 +377,38 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
             resp = smbClient.listShares()
 
             for share in resp:
+                # SHARE_INFO_1 structure (lmshare.h)
+                # https://docs.microsoft.com/en-us/windows/win32/api/lmshare/ns-lmshare-share_info_1
                 sharename = share['shi1_netname'][:-1]
+                sharecomment = share['shi1_remark'][:-1]
+                sharetype = share['shi1_type']
+
                 if sharename not in COMMON_SHARES:
                     lock.acquire()
-                    print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                    if len(sharecomment) != 0:
+                        print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                    else:
+                        print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
                     d = {
                         "sharename": sharename,
                         "uncpath": "\\".join(['', '', target_ip, sharename, '']),
-                        "computer": target_name
+                        "computer": target_name,
+                        "comment": sharecomment,
+                        "type": {
+                            "stype_value": sharetype,
+                            "stype_flags": STYPE_MASK(sharetype)
+                        }
                     }
                     f = open(args.output_file, "a")
-                    f.write(json.dumps(d)+"\n")
+                    f.write(json.dumps(d) + "\n")
                     f.close()
                     lock.release()
         except Exception as e:
-            pass
+            print(e)
             # if logging.getLogger().level == logging.DEBUG:
             #     traceback.print_exc()
             #     logging.error(str(e))
+
 
 if __name__ == '__main__':
     print(version.BANNER)
