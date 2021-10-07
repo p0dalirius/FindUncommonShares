@@ -2,7 +2,7 @@
 
 ![](.github/example.png)
 
-The script [FindUncommonShares.py](https://github.com/p0dalirius/FindUncommonShares/FindUncommonShares.py) is a Python equivalent of [PowerView](https://github.com/darkoperator/Veil-PowerView/)'s [Invoke-ShareFinder.ps1](https://github.com/darkoperator/Veil-PowerView/blob/master/PowerView/functions/Invoke-ShareFinder.ps1)
+The script [FindUncommonShares.py](https://github.com/p0dalirius/FindUncommonShares/FindUncommonShares.py) is a Python equivalent of [PowerView](https://github.com/darkoperator/Veil-PowerView/)'s [Invoke-ShareFinder.ps1](https://github.com/darkoperator/Veil-PowerView/blob/master/PowerView/functions/Invoke-ShareFinder.ps1) allowing to quickly find uncommon shares in vast Windows Domains.
 
 ## Usage
 
