@@ -30,7 +30,10 @@ import json
 import time
 
 COMMON_SHARES = [
-    "ADMIN$", "IPC$", "C$", "NETLOGON", "SYSVOL"
+    "C$", "D$",
+    "ADMIN$", "IPC$",
+    "PRINT$", "FAX$",
+    "SYSVOL", "NETLOGON"
 ]
 
 
