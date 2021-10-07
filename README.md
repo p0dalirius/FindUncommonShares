@@ -93,6 +93,12 @@ Each JSON entry looks like this:
 }
 ```
 
+## Colored output
+
+You can print results with colors using the `-colors` option:
+
+![](./.github/colors.png)
+
 ## Credits
 
  - Feature suggested in [impacket issue #1176](https://github.com/SecureAuthCorp/impacket/issues/1176) by [@CaledoniaProject](https://github.com/CaledoniaProject)

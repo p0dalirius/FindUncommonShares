@@ -95,6 +95,7 @@ def parse_args():
     parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="show no information at all")
     parser.add_argument("-debug", dest="debug", action="store_true", default=False, help="Debug mode")
+    parser.add_argument("-colors", dest="colors", action="store_true", default=False, help="Colored output mode")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=5, required=False, help="Number of threads (default: 5)")
     parser.add_argument("-o", "--output-file", dest="output_file", type=str, default="shares.json", required=False, help="Output file to store the results in. (default: shares.json)")
 
@@ -389,23 +390,34 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                 if sharename not in COMMON_SHARES:
                     lock.acquire()
                     if len(sharecomment) != 0:
-                        print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                        if args.colors:
+                            print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                        else:
+                            print("[>] Found uncommon share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
                     else:
-                        print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                        if args.colors:
+                            print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                        else:
+                            print("[>] Found uncommon share '%s' on '%s'" % (sharename, address))
                     d = {
                         "sharename": sharename,
                         "uncpath": "\\".join(['', '', target_ip, sharename, '']),
                         "computer": target_name,
                         "comment": sharecomment,
                         "type": {
-                            "stype_value": sharetype,
-                            "stype_flags": STYPE_MASK(sharetype)
+                            "stype_value":sharetype,
+                            "stype_flags":STYPE_MASK(sharetype)
                         }
                     }
                     f = open(args.output_file, "a")
-                    f.write(json.dumps(d) + "\n")
+                    f.write(json.dumps(d)+"\n")
                     f.close()
                     lock.release()
+                elif args.debug:
+                    if args.colors:
+                        print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                    else:
+                        print("[>] Skipping common share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
         except Exception as e:
             print(e)
             # if logging.getLogger().level == logging.DEBUG:
