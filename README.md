@@ -10,7 +10,7 @@ The script [FindUncommonShares.py](https://github.com/p0dalirius/FindUncommonSha
 $ ./FindUncommonShares.py -h                                                                  
 Impacket v0.9.24.dev1+20210906.175840.50c76958 - Copyright 2021 SecureAuth Corporation
 
-usage: FindUncommonShares.py [-h] [-ts] [--use-ldaps] [-q] [-debug] [--dc-ip ip address] [-d DOMAIN] [-u USER]
+usage: FindUncommonShares.py [-h] [-ts] [--use-ldaps] [-q] [-debug] [-t THREADS] [-o OUTPUT_FILE] --dc-ip ip address [-d DOMAIN] [-u USER]
                              [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
 
 Find uncommon SMB shares on remote machines.
@@ -21,6 +21,10 @@ optional arguments:
   --use-ldaps           Use LDAPS instead of LDAP
   -q, --quiet           show no information at all
   -debug                Debug mode
+  -t THREADS, --threads THREADS
+                        Number of threads (default: 5)
+  -o OUTPUT_FILE, --output-file OUTPUT_FILE
+                        Output file to store the results in. (default: shares.json)
 
 authentication & connection:
   --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN)
@@ -36,7 +40,7 @@ authentication & connection:
                         NT/LM hashes, format is LMhash:NThash
   --aes-key hex key     AES key to use for Kerberos Authentication (128 or 256 bits)
   -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials
-                        cannot be found, it will use the ones specified in the command line                        
+                        cannot be found, it will use the ones specified in the command line                       
 ```
 
 ## Examples :
@@ -53,6 +57,15 @@ Impacket v0.9.24.dev1+20210906.175840.50c76958 - Copyright 2021 SecureAuth Corpo
 [>] Found uncommon share 'AnotherShare' on 'PC01.LAB.local'
 [>] Found uncommon share 'Users' on 'PC01.LAB.local
 []$
+```
+
+Results are exported in JSON:
+
+```json
+{"sharename": "AnotherShare", "uncpath": "\\\\192.168.2.11\\AnotherShare\\", "computer": "PC01.LAB.local"}
+{"sharename": "Users", "uncpath": "\\\\192.168.2.11\\Users\\", "computer": "PC01.LAB.local"}
+{"sharename": "Users", "uncpath": "\\\\192.168.2.1\\Users\\", "computer": "DC01.LAB.local"}
+{"sharename": "WeirdShare", "uncpath": "\\\\192.168.2.1\\WeirdShare\\", "computer": "DC01.LAB.local"}
 ```
 
 ## Credits

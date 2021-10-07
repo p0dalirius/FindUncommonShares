@@ -14,19 +14,25 @@
 #   Remi GASCOU (@podalirius_)
 #
 
-
 import argparse
 import sys
 import traceback
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from impacket import version
 from impacket.examples import logger, utils
 from impacket.smbconnection import SMBConnection, SMB2_DIALECT_002, SMB2_DIALECT_21, SMB_DIALECT, SessionError
 import ldap3
+import nslookup
+import json
+import time
+
 
 COMMON_SHARES = [
     "ADMIN$", "IPC$", "C$", "NETLOGON", "SYSVOL"
 ]
+
 
 def get_domain_computers(target_dn, ldap_server, ldap_session):
     results = {}
@@ -40,15 +46,19 @@ def get_domain_computers(target_dn, ldap_server, ldap_session):
         }
     return results
 
+
 def parse_args():
     parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
     parser.add_argument('-ts', action='store_true', help='Adds timestamp to every logging output')
     parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="show no information at all")
     parser.add_argument("-debug", dest="debug", action="store_true", default=False, help="Debug mode")
+    parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=5, required=False, help="Number of threads (default: 5)")
+    parser.add_argument("-o", "--output-file", dest="output_file", type=str, default="shares.json", required=False, help="Output file to store the results in. (default: shares.json)")
+
 
     authconn = parser.add_argument_group('authentication & connection')
-    authconn.add_argument('--dc-ip', action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
+    authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
     authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", help="(FQDN) domain to authenticate to")
     authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", help="user to authenticate with")
 
@@ -108,6 +118,7 @@ def init_ldap_connection(target, tls_version, args, domain, username, password, 
         ldap_session = ldap3.Connection(ldap_server, user=user, password=password, authentication=ldap3.NTLM, auto_bind=True)
 
     return ldap_server, ldap_session
+
 
 def init_ldap_session(args, domain, username, password, lmhash, nthash):
     if args.use_kerberos:
@@ -319,20 +330,33 @@ def init_smb_session(args, target_ip, domain, username, password, address, lmhas
     return smbClient
 
 
-def worker(args, target_ip, domain, username, password, address, lmhash, nthash):
-    try:
-        smbClient = init_smb_session(args, target_ip, domain, username, password, address, lmhash, nthash)
-        resp = smbClient.listShares()
+def worker(args, target_name, domain, username, password, address, lmhash, nthash, lock):
+    target_ip = nslookup.Nslookup(dns_servers=[args.dc_ip]).dns_lookup(target_name).answer
+    if len(target_ip) != 0:
+        target_ip = target_ip[0]
+        try:
+            smbClient = init_smb_session(args, target_ip, domain, username, password, address, lmhash, nthash)
+            resp = smbClient.listShares()
 
-        for share in resp:
-            sharename = share['shi1_netname'][:-1]
-            if sharename not in COMMON_SHARES:
-                print("[>] Found uncommon share '%s' on '%s'" % (sharename, address))
-    except Exception as e:
-        pass
-        # if logging.getLogger().level == logging.DEBUG:
-        #     traceback.print_exc()
-        #     logging.error(str(e))
+            for share in resp:
+                sharename = share['shi1_netname'][:-1]
+                if sharename not in COMMON_SHARES:
+                    lock.acquire()
+                    print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                    d = {
+                        "sharename": sharename,
+                        "uncpath": "\\".join(['', '', target_ip, sharename, '']),
+                        "computer": target_name
+                    }
+                    f = open(args.output_file, "a")
+                    f.write(json.dumps(d)+"\n")
+                    f.close()
+                    lock.release()
+        except Exception as e:
+            pass
+            # if logging.getLogger().level == logging.DEBUG:
+            #     traceback.print_exc()
+            #     logging.error(str(e))
 
 if __name__ == '__main__':
     print(version.BANNER)
@@ -356,12 +380,20 @@ if __name__ == '__main__':
         lmhash=auth_lm_hash,
         nthash=auth_nt_hash
     )
+
     print("[>] Extracting all computers ...")
     dn = ','.join(["DC=%s" % part for part in args.auth_domain.split('.')])
     computers = get_domain_computers(dn, ldap_server, ldap_session)
     print("[+] Found %d computers." % len(computers.keys()))
+    print()
 
     print("[>] Enumerating shares ...")
-    for ck in computers.keys():
-        computer = computers[ck]
-        worker(args, computer['dNSHostName'], args.auth_domain, args.auth_username, args.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash)
+    # Overwrite output file
+    open(args.output_file, "w").close()
+    # Setup thread lock to properly write in the file
+    lock = threading.Lock()
+    # Waits for all the threads to be completed
+    with ThreadPoolExecutor(max_workers=min(args.threads, len(computers.keys()))) as tp:
+        for ck in computers.keys():
+            computer = computers[ck]
+            tp.submit(worker, args, computer['dNSHostName'], args.auth_domain, args.auth_username, args.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash, lock)
