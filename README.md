@@ -59,7 +59,7 @@ Impacket v0.9.24.dev1+20210906.175840.50c76958 - Copyright 2021 SecureAuth Corpo
 [+] Found 2 computers.
 [>] Enumerating shares ...
 [>] Found uncommon share 'Users' on 'DC01.LAB.local'
-[>] Found uncommon share 'WeirdShare' on 'DC01.LAB.local'
+[>] Found uncommon share 'WeirdShare' on 'DC01.LAB.local' (comment: 'Test comment')
 [>] Found uncommon share 'AnotherShare' on 'PC01.LAB.local'
 [>] Found uncommon share 'Users' on 'PC01.LAB.local
 []$
