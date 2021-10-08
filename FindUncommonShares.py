@@ -14,20 +14,25 @@
 #   Remi GASCOU (@podalirius_)
 #
 
-import argparse
-import sys
-import traceback
-import logging
-import threading
-from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
-from impacket import version
+from enum import Enum
 from impacket.examples import logger, utils
+from impacket import version
 from impacket.smbconnection import SMBConnection, SMB2_DIALECT_002, SMB2_DIALECT_21, SMB_DIALECT, SessionError
-import ldap3
-import nslookup
+from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
+import argparse
+import binascii
 import json
+import ldap3
+import logging
+import nslookup
+import os
+import ssl
+import sys
+import threading
 import time
+import traceback
+
 
 COMMON_SHARES = [
     "C$", "D$",
@@ -204,8 +209,8 @@ def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='
         if len(nthash) % 2:
             nthash = '0' + nthash
         try:  # just in case they were converted already
-            lmhash = unhexlify(lmhash)
-            nthash = unhexlify(nthash)
+            lmhash = binascii.unhexlify(lmhash)
+            nthash = binascii.unhexlify(nthash)
         except TypeError:
             pass
 
@@ -405,12 +410,12 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                         "computer": target_name,
                         "comment": sharecomment,
                         "type": {
-                            "stype_value":sharetype,
-                            "stype_flags":STYPE_MASK(sharetype)
+                            "stype_value": sharetype,
+                            "stype_flags": STYPE_MASK(sharetype)
                         }
                     }
                     f = open(args.output_file, "a")
-                    f.write(json.dumps(d)+"\n")
+                    f.write(json.dumps(d) + "\n")
                     f.close()
                     lock.release()
                 elif args.debug:
