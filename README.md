@@ -1,8 +1,16 @@
 # FindUncommonShares
 
-![](.github/example.png)
+<p align="center">
+  <img alt="GitHub release (latest by date)" src="https://img.shields.io/github/v/release/p0dalirius/FindUncommonShares">
+  <a href="https://twitter.com/intent/follow?screen_name=podalirius_" title="Follow"><img src="https://img.shields.io/twitter/follow/podalirius_?label=Podalirius&style=social"></a>
+  <br>
+</p>
+
 
 The script [FindUncommonShares.py](https://github.com/p0dalirius/FindUncommonShares/blob/main/FindUncommonShares.py) is a Python equivalent of [PowerView](https://github.com/darkoperator/Veil-PowerView/)'s [Invoke-ShareFinder.ps1](https://github.com/darkoperator/Veil-PowerView/blob/master/PowerView/functions/Invoke-ShareFinder.ps1) allowing to quickly find uncommon shares in vast Windows Domains.
+
+![](.github/example.png)
+
 
 ## Features
 
