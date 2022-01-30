@@ -1,18 +1,9 @@
 #!/usr/bin/env python3
-# Impacket - Collection of Python classes for working with network protocols.
-#
-# SECUREAUTH LABS. Copyright (C) 2021 SecureAuth Corporation. All rights reserved.
-#
-# This software is provided under a slightly modified version
-# of the Apache Software License. See the accompanying LICENSE file
-# for more information.
-#
-# Description:
-#   Find uncommon SMB shares on remote machines
-#
-# Author:
-#   Remi GASCOU (@podalirius_)
-#
+# -*- coding: utf-8 -*-
+# File name          : FindUncommonShares.py
+# Author             : Podalirius (@podalirius_)
+# Date created       : 30 Jan 2022
+
 
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
