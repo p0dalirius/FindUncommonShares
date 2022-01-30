@@ -394,16 +394,17 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
 
                 if sharename not in COMMON_SHARES:
                     lock.acquire()
-                    if len(sharecomment) != 0:
-                        if args.colors:
-                            print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                    if not args.quiet:
+                        if len(sharecomment) != 0:
+                            if args.colors:
+                                print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                            else:
+                                print("[>] Found uncommon share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
                         else:
-                            print("[>] Found uncommon share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
-                    else:
-                        if args.colors:
-                            print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
-                        else:
-                            print("[>] Found uncommon share '%s' on '%s'" % (sharename, address))
+                            if args.colors:
+                                print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                            else:
+                                print("[>] Found uncommon share '%s' on '%s'" % (sharename, address))
                     d = {
                         "sharename": sharename,
                         "uncpath": "\\".join(['', '', target_ip, sharename, '']),
@@ -418,21 +419,27 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                     f.write(json.dumps(d) + "\n")
                     f.close()
                     lock.release()
-                elif args.debug:
-                    if args.colors:
-                        print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                elif args.debug and not args.quiet:
+                    if len(sharecomment) != 0:
+                        if args.colors:
+                            print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                        else:
+                            print("[>] Skipping common share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
                     else:
-                        print("[>] Skipping common share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
+                        if args.colors:
+                            print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                        else:
+                            print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
+
         except Exception as e:
-            print(e)
-            # if logging.getLogger().level == logging.DEBUG:
-            #     traceback.print_exc()
-            #     logging.error(str(e))
+            if args.debug:
+                print(e)
 
 
 if __name__ == '__main__':
-    print(version.BANNER)
     args = parse_args()
+    if not args.quiet:
+        print(version.BANNER)
     init_logger(args)
 
     auth_lm_hash = ""
@@ -453,13 +460,16 @@ if __name__ == '__main__':
         nthash=auth_nt_hash
     )
 
-    print("[>] Extracting all computers ...")
+    if not args.quiet:
+        print("[>] Extracting all computers ...")
     dn = ','.join(["DC=%s" % part for part in args.auth_domain.split('.')])
     computers = get_domain_computers(dn, ldap_server, ldap_session)
-    print("[+] Found %d computers." % len(computers.keys()))
-    print()
 
-    print("[>] Enumerating shares ...")
+    if not args.quiet:
+        print("[+] Found %d computers in the domain." % len(computers.keys()))
+        print()
+
+        print("[>] Enumerating shares ...")
     # Overwrite output file
     open(args.output_file, "w").close()
     # Setup thread lock to properly write in the file
