@@ -37,7 +37,8 @@ import traceback
 COMMON_SHARES = [
     "C$", "D$",
     "ADMIN$", "IPC$",
-    "PRINT$", "FAX$",
+    "PRINT$", "print$",
+    "fax$", "FAX$",
     "SYSVOL", "NETLOGON"
 ]
 
