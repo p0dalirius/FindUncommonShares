@@ -23,10 +23,11 @@ import sys
 import threading
 import time
 import traceback
+import dns.resolver, dns.exception
 
 
 COMMON_SHARES = [
-    "C$", "D$",
+    "C$",
     "ADMIN$", "IPC$",
     "PRINT$", "print$",
     "fax$", "FAX$",
@@ -73,8 +74,9 @@ def STYPE_MASK(stype_value):
     return flags
 
 
-def get_domain_computers(target_dn, ldap_server, ldap_session):
+def get_domain_computers(ldap_server, ldap_session):
     results = {}
+    target_dn = ldap_server.info.other["defaultNamingContext"]
     ldap_session.search(target_dn, "(objectCategory=computer)", attributes=["dNSHostName", "sAMAccountName"])
     for entry in ldap_session.response:
         if entry['type'] != 'searchResEntry':
@@ -87,13 +89,16 @@ def get_domain_computers(target_dn, ldap_server, ldap_session):
 
 
 def parse_args():
+    print("FindUncommonShares v2.0 - by @podalirius_\n")
+
     parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
     parser.add_argument('-ts', action='store_true', help='Adds timestamp to every logging output')
     parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
-    parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="show no information at all")
-    parser.add_argument("-debug", dest="debug", action="store_true", default=False, help="Debug mode")
-    parser.add_argument("-colors", dest="colors", action="store_true", default=False, help="Colored output mode")
-    parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=5, required=False, help="Number of threads (default: 5)")
+    parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="Show no information at all.")
+    parser.add_argument("-debug", dest="debug", action="store_true", default=False, help="Debug mode.")
+    parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
+    parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
+    parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
     parser.add_argument("-o", "--output-file", dest="output_file", type=str, default="shares.json", required=False, help="Output file to store the results in. (default: shares.json)")
 
     authconn = parser.add_argument_group('authentication & connection')
@@ -103,10 +108,10 @@ def parse_args():
 
     secret = parser.add_argument_group()
     cred = secret.add_mutually_exclusive_group()
-    cred.add_argument('--no-pass', action="store_true", help='don\'t ask for password (useful for -k)')
-    cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", help="password to authenticate with")
+    cred.add_argument("--no-pass", action="store_true", help="Don't ask for password (useful for -k)")
+    cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", help="Password to authenticate with")
     cred.add_argument("-H", "--hashes", dest="auth_hashes", action="store", metavar="[LMHASH:]NTHASH", help='NT/LM hashes, format is LMhash:NThash')
-    cred.add_argument('--aes-key', dest="auth_key", action="store", metavar="hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
+    cred.add_argument("--aes-key", dest="auth_key", action="store", metavar="hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
     secret.add_argument("-k", "--kerberos", dest="use_kerberos", action="store_true", help='Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line')
 
     if len(sys.argv) == 1:
@@ -370,7 +375,7 @@ def init_smb_session(args, target_ip, domain, username, password, address, lmhas
 
 
 def worker(args, target_name, domain, username, password, address, lmhash, nthash, lock):
-    target_ip = nslookup.Nslookup(dns_servers=[args.dc_ip]).dns_lookup(target_name).answer
+    target_ip = nslookup.Nslookup(dns_servers=[args.dc_ip], verbose=args.debug).dns_lookup(target_name).answer
     if len(target_ip) != 0:
         target_ip = target_ip[0]
         try:
@@ -389,14 +394,26 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                     if not args.quiet:
                         if len(sharecomment) != 0:
                             if args.colors:
-                                print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                                if sharename.endswith('$'):
+                                    if not args.ignore_hidden_shares:
+                                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                                else:
+                                    print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
                             else:
-                                print("[>] Found uncommon share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
+                                print("[>] Found '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
                         else:
                             if args.colors:
-                                print("[>] Found uncommon share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                                if sharename.endswith('$'):
+                                    if not args.ignore_hidden_shares:
+                                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                                else:
+                                    print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
                             else:
-                                print("[>] Found uncommon share '%s' on '%s'" % (sharename, address))
+                                if sharename.endswith('$'):
+                                    if not args.ignore_hidden_shares:
+                                        print("[>] Found '%s' on '%s'" % (sharename, address))
+                                else:
+                                    print("[>] Found '%s' on '%s'" % (sharename, address))
                     d = {
                         "sharename": sharename,
                         "uncpath": "\\".join(['', '', target_ip, sharename, '']),
@@ -414,14 +431,24 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                 elif args.debug and not args.quiet:
                     if len(sharecomment) != 0:
                         if args.colors:
-                            print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                            if sharename.endswith('$') and not args.ignore_hidden_shares:
+                                print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                            else:
+                                print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
                         else:
                             print("[>] Skipping common share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
                     else:
                         if args.colors:
-                            print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                            if sharename.endswith('$') and not args.ignore_hidden_shares:
+                                print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                            else:
+                                print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
                         else:
-                            print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
+                            if sharename.endswith('$'):
+                                if not args.ignore_hidden_shares:
+                                    print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
+                            else:
+                                print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
 
         except Exception as e:
             if args.debug:
@@ -430,8 +457,6 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
 
 if __name__ == '__main__':
     args = parse_args()
-    if not args.quiet:
-        print(version.BANNER)
     init_logger(args)
 
     auth_lm_hash = ""
@@ -454,8 +479,7 @@ if __name__ == '__main__':
 
     if not args.quiet:
         print("[>] Extracting all computers ...")
-    dn = ','.join(["DC=%s" % part for part in args.auth_domain.split('.')])
-    computers = get_domain_computers(dn, ldap_server, ldap_session)
+    computers = get_domain_computers(ldap_server, ldap_session)
 
     if not args.quiet:
         print("[+] Found %d computers in the domain." % len(computers.keys()))
