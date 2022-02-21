@@ -14,6 +14,7 @@
 
 ## Features
 
+ - [x] Only requires a **low privileges domain user account**.
  - [x] Automatically gets the list of all computers from the domain controller's LDAP.
  - [x] Ignore the hidden shares (ending with `$`) with `--ignore-hidden-shares`.
  - [x] Multithreaded search.
