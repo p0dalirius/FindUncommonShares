@@ -86,17 +86,17 @@ $
 Results are exported in JSON entries:
 
 ```json
-{"sharename": "Users", "uncpath": "\\\\192.168.2.1\\Users\\", "computer": "DC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
-{"sharename": "WeirdShare", "uncpath": "\\\\192.168.2.1\\WeirdShare\\", "computer": "DC01.LAB.local", "comment": "Test comment", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
-{"sharename": "AnotherShare", "uncpath": "\\\\192.168.2.11\\AnotherShare\\", "computer": "PC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
-{"sharename": "Users", "uncpath": "\\\\192.168.2.11\\Users\\", "computer": "PC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
+{"share": "Users", "uncpath": "\\\\192.168.2.1\\Users\\", "computer": "DC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
+{"share": "WeirdShare", "uncpath": "\\\\192.168.2.1\\WeirdShare\\", "computer": "DC01.LAB.local", "comment": "Test comment", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
+{"share": "AnotherShare", "uncpath": "\\\\192.168.2.11\\AnotherShare\\", "computer": "PC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
+{"share": "Users", "uncpath": "\\\\192.168.2.11\\Users\\", "computer": "PC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
 ```
 
 Each JSON entry looks like this:
 
 ```json
 {
-  "sharename": "AnotherShare",
+  "share": "AnotherShare",
   "uncpath": "\\\\192.168.2.11\\AnotherShare\\",
   "computer": "PC01.LAB.local",
   "comment": "",
