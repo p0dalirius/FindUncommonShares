@@ -24,6 +24,7 @@ import threading
 import time
 import traceback
 import dns.resolver, dns.exception
+import xlsxwriter
 
 
 COMMON_SHARES = [
@@ -89,7 +90,7 @@ def get_domain_computers(ldap_server, ldap_session):
 
 
 def parse_args():
-    print("FindUncommonShares v2.0 - by @podalirius_\n")
+    print("FindUncommonShares v2.1 - by @podalirius_\n")
 
     parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
     parser.add_argument('-ts', action='store_true', help='Adds timestamp to every logging output')
@@ -99,7 +100,10 @@ def parse_args():
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
     parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
-    parser.add_argument("-o", "--output-file", dest="output_file", type=str, default="shares.json", required=False, help="Output file to store the results in. (default: shares.json)")
+
+    output = parser.add_argument_group('output files')
+    output.add_argument("--xlsx", dest="xlsx", type=str, default=None, required=False, help="Output file to store the results in. (default: shares.xlsx)")
+    output.add_argument("--json", dest="json", type=str, default=None, required=False, help="Output file to store the results in. (default: shares.json)")
 
     authconn = parser.add_argument_group('authentication & connection')
     authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
@@ -374,14 +378,13 @@ def init_smb_session(args, target_ip, domain, username, password, address, lmhas
     return smbClient
 
 
-def worker(args, target_name, domain, username, password, address, lmhash, nthash, lock):
+def worker(args, target_name, domain, username, password, address, lmhash, nthash, results, lock):
     target_ip = nslookup.Nslookup(dns_servers=[args.dc_ip], verbose=args.debug).dns_lookup(target_name).answer
     if len(target_ip) != 0:
         target_ip = target_ip[0]
         try:
             smbClient = init_smb_session(args, target_ip, domain, username, password, address, lmhash, nthash)
             resp = smbClient.listShares()
-
             for share in resp:
                 # SHARE_INFO_1 structure (lmshare.h)
                 # https://docs.microsoft.com/en-us/windows/win32/api/lmshare/ns-lmshare-share_info_1
@@ -389,8 +392,25 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                 sharecomment = share['shi1_remark'][:-1]
                 sharetype = share['shi1_type']
 
+                lock.acquire()
+                if target_name not in results.keys():
+                    results[target_name] = []
+                results[target_name].append(
+                    {
+                        "share": sharename,
+                        "computer": target_name,
+                        "hidden": (True if sharename.endswith('$') else False),
+                        "uncpath": "\\".join(['', '', target_ip, sharename, '']),
+                        "comment": sharecomment,
+                        "type": {
+                            "stype_value": sharetype,
+                            "stype_flags": STYPE_MASK(sharetype)
+                        }
+                    }
+                )
+                lock.release()
+
                 if sharename not in COMMON_SHARES:
-                    lock.acquire()
                     if not args.quiet:
                         if len(sharecomment) != 0:
                             if args.colors:
@@ -414,20 +434,6 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                                         print("[>] Found '%s' on '%s'" % (sharename, address))
                                 else:
                                     print("[>] Found '%s' on '%s'" % (sharename, address))
-                    d = {
-                        "sharename": sharename,
-                        "uncpath": "\\".join(['', '', target_ip, sharename, '']),
-                        "computer": target_name,
-                        "comment": sharecomment,
-                        "type": {
-                            "stype_value": sharetype,
-                            "stype_flags": STYPE_MASK(sharetype)
-                        }
-                    }
-                    f = open(args.output_file, "a")
-                    f.write(json.dumps(d) + "\n")
-                    f.close()
-                    lock.release()
                 elif args.debug and not args.quiet:
                     if len(sharecomment) != 0:
                         if args.colors:
@@ -486,12 +492,44 @@ if __name__ == '__main__':
         print()
 
         print("[>] Enumerating shares ...")
-    # Overwrite output file
-    open(args.output_file, "w").close()
+
+    results = {}
+
     # Setup thread lock to properly write in the file
     lock = threading.Lock()
     # Waits for all the threads to be completed
     with ThreadPoolExecutor(max_workers=min(args.threads, len(computers.keys()))) as tp:
         for ck in computers.keys():
             computer = computers[ck]
-            tp.submit(worker, args, computer['dNSHostName'], args.auth_domain, args.auth_username, args.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash, lock)
+            tp.submit(worker, args, computer['dNSHostName'], args.auth_domain, args.auth_username, args.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash, results, lock)
+
+    if args.json is not None:
+        print("[>] Exporting results to %s ..." % args.json)
+        f = open(args.json, "w")
+        f.write(json.dumps(results, indent=4)+"\n")
+        f.close()
+        print("[+] done.")
+
+    if args.xlsx is not None:
+        print("[>] Exporting results to %s ..." % args.xlsx)
+
+        workbook = xlsxwriter.Workbook(args.xlsx)
+        worksheet = workbook.add_worksheet()
+
+        header_format = workbook.add_format({'bold': 1})
+        header_fields = ["computer", "share", "comment", "hidden"]
+        for k in range(len(header_fields)):
+            worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
+        worksheet.set_row(0, 20, header_format)
+        worksheet.write_row(0, 0, header_fields)
+
+        row_id = 1
+        for computername in results.keys():
+            computer = results[computername]
+            for share in computer:
+                data = [share.get(key, "") for key in header_fields]
+                worksheet.write_row(row_id, 0, data)
+                row_id += 1
+        worksheet.autofilter(0, 0, row_id, len(header_fields)-1)
+        workbook.close()
+        print("[+] done.")
