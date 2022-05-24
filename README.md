@@ -28,7 +28,7 @@
 $ ./FindUncommonShares.py -h
 FindUncommonShares v2.1 - by @podalirius_
 
-usage: f.py [-h] [-ts] [--use-ldaps] [-q] [-debug] [-no-colors] [-I] [-t THREADS] [--xlsx XLSX] [--json JSON] --dc-ip ip address
+usage: FindUncommonShares.py [-h] [-ts] [--use-ldaps] [-q] [-debug] [-no-colors] [-I] [-t THREADS] [--xlsx XLSX] [--json JSON] --dc-ip ip address
             [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
 
 Find uncommon SMB shares on remote machines.
