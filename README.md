@@ -70,7 +70,7 @@ authentication & connection:
 
 ```
 $ ./FindUncommonShares.py -u 'Administrator' -d 'LAB.local' -p 'Admin123!' --dc-ip 192.168.2.1
-FindUncommonShares v2.0 - by @podalirius_
+FindUncommonShares v2.1 - by @podalirius_
 
 [>] Extracting all computers ...
 [+] Found 2 computers.

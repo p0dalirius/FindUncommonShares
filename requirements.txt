@@ -1,1 +1,3 @@
+impacket
 nslookup
+xlsxwriter
