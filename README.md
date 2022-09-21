@@ -18,59 +18,58 @@
  - [x] Only requires a **low privileges domain user account**.
  - [x] Automatically gets the list of all computers from the domain controller's LDAP.
  - [x] Ignore the hidden shares (ending with `$`) with `--ignore-hidden-shares`.
- - [x] Multithreaded search.
+ - [x] Multithreaded connections to discover SMB shares.
  - [x] JSON export of the found shares, with IP, name, comment, flags and UNC path with `--json <file.json>`.
  - [x] XLSX export of the found shares, with IP, name, comment, flags and UNC path with `--xlsx <file.xlsx>`.
+ - [x] Iterate on LDAP result pages to get every computer of the domain, no matter the size.
 
 ## Usage
 
 ```              
 $ ./FindUncommonShares.py -h
-FindUncommonShares v2.1 - by @podalirius_
+FindUncommonShares v2.2 - by @podalirius_
 
-usage: FindUncommonShares.py [-h] [-ts] [--use-ldaps] [-q] [-debug] [-no-colors] [-I] [-t THREADS] [--xlsx XLSX] [--json JSON] --dc-ip ip address
-            [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
+usage: FindUncommonShares.py [-h] [--use-ldaps] [-q] [--debug] [-no-colors] [-I] [-t THREADS] [--xlsx XLSX] [--json JSON] --dc-ip ip address [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
 
 Find uncommon SMB shares on remote machines.
 
-options:
+optional arguments:
   -h, --help            show this help message and exit
-  -ts                   Adds timestamp to every logging output
   --use-ldaps           Use LDAPS instead of LDAP
   -q, --quiet           Show no information at all.
-  -debug                Debug mode.
+  --debug               Debug mode.
   -no-colors            Disables colored output mode
   -I, --ignore-hidden-shares
                         Ignores hidden shares (shares ending with $)
   -t THREADS, --threads THREADS
                         Number of threads (default: 20)
 
-output files:
+Output files:
   --xlsx XLSX           Output file to store the results in. (default: shares.xlsx)
   --json JSON           Output file to store the results in. (default: shares.json)
 
-authentication & connection:
-  --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use
-                        the domain part (FQDN) specified in the identity parameter
+Authentication & connection:
+  --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter
   -d DOMAIN, --domain DOMAIN
                         (FQDN) domain to authenticate to
   -u USER, --user USER  user to authenticate with
 
+Credentials:
   --no-pass             Don't ask for password (useful for -k)
   -p PASSWORD, --password PASSWORD
                         Password to authenticate with
   -H [LMHASH:]NTHASH, --hashes [LMHASH:]NTHASH
                         NT/LM hashes, format is LMhash:NThash
   --aes-key hex key     AES key to use for Kerberos Authentication (128 or 256 bits)
-  -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If
-                        valid credentials cannot be found, it will use the ones specified in the command line
+  -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line
+
 ```
 
 ## Examples :
 
 ```
 $ ./FindUncommonShares.py -u 'Administrator' -d 'LAB.local' -p 'Admin123!' --dc-ip 192.168.2.1
-FindUncommonShares v2.1 - by @podalirius_
+FindUncommonShares v2.2 - by @podalirius_
 
 [>] Extracting all computers ...
 [+] Found 2 computers.

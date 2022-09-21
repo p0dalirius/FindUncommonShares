@@ -7,7 +7,6 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
-from impacket.examples import logger, utils
 from impacket import version
 from impacket.smbconnection import SMBConnection, SMB2_DIALECT_002, SMB2_DIALECT_21, SMB_DIALECT, SessionError
 from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
@@ -25,6 +24,9 @@ import time
 import traceback
 import dns.resolver, dns.exception
 import xlsxwriter
+
+
+VERSION = "2.2"
 
 
 COMMON_SHARES = [
@@ -76,41 +78,69 @@ def STYPE_MASK(stype_value):
 
 
 def get_domain_computers(ldap_server, ldap_session):
+    page_size = 1000
+    # Controls
+    # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/3c5e87db-4728-4f29-b164-01dd7d7391ea
+    LDAP_PAGED_RESULT_OID_STRING = "1.2.840.113556.1.4.319"
+    # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-adts/f14f3610-ee22-4d07-8a24-1bf1466cba5f
+    LDAP_SERVER_NOTIFICATION_OID = "1.2.840.113556.1.4.528"
     results = {}
+
     target_dn = ldap_server.info.other["defaultNamingContext"]
-    ldap_session.search(target_dn, "(objectCategory=computer)", attributes=["dNSHostName", "sAMAccountName"])
-    for entry in ldap_session.response:
-        if entry['type'] != 'searchResEntry':
-            continue
-        results[entry['dn']] = {
-            'dNSHostName': entry["attributes"]['dNSHostName'],
-            'sAMAccountName': entry["attributes"]['sAMAccountName']
-        }
+
+    # https://ldap3.readthedocs.io/en/latest/searches.html#the-search-operation
+    paged_response = True
+    paged_cookie = None
+    while paged_response == True:
+        ldap_session.search(
+            target_dn, "(objectCategory=computer)", attributes=["dNSHostName", "sAMAccountName"],
+            size_limit=0, paged_size=page_size, paged_cookie=paged_cookie
+        )
+        #
+        if "controls" in ldap_session.result.keys():
+            if LDAP_PAGED_RESULT_OID_STRING in ldap_session.result["controls"].keys():
+                next_cookie = ldap_session.result["controls"][LDAP_PAGED_RESULT_OID_STRING]["value"]["cookie"]
+                if len(next_cookie) == 0:
+                    paged_response = False
+                else:
+                    paged_response = True
+                    paged_cookie = next_cookie
+            else:
+                paged_response = False
+        else:
+            paged_response = False
+        #
+        for entry in ldap_session.response:
+            if entry['type'] != 'searchResEntry':
+                continue
+            results[entry['dn']] = {
+                'dNSHostName': entry["attributes"]['dNSHostName'],
+                'sAMAccountName': entry["attributes"]['sAMAccountName']
+            }
     return results
 
 
 def parse_args():
-    print("FindUncommonShares v2.1 - by @podalirius_\n")
+    print("FindUncommonShares v%s - by @podalirius_\n" % VERSION)
 
     parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
-    parser.add_argument('-ts', action='store_true', help='Adds timestamp to every logging output')
     parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="Show no information at all.")
-    parser.add_argument("-debug", dest="debug", action="store_true", default=False, help="Debug mode.")
+    parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode.")
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
     parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
 
-    output = parser.add_argument_group('output files')
+    output = parser.add_argument_group('Output files')
     output.add_argument("--xlsx", dest="xlsx", type=str, default=None, required=False, help="Output file to store the results in. (default: shares.xlsx)")
     output.add_argument("--json", dest="json", type=str, default=None, required=False, help="Output file to store the results in. (default: shares.json)")
 
-    authconn = parser.add_argument_group('authentication & connection')
+    authconn = parser.add_argument_group('Authentication & connection')
     authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
     authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", help="(FQDN) domain to authenticate to")
     authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", help="user to authenticate with")
 
-    secret = parser.add_argument_group()
+    secret = parser.add_argument_group("Credentials")
     cred = secret.add_mutually_exclusive_group()
     cred.add_argument("--no-pass", default=False, action="store_true", help="Don't ask for password (useful for -k)")
     cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", help="Password to authenticate with")
@@ -190,7 +220,7 @@ def init_ldap_session(args, domain, username, password, lmhash, nthash):
         return init_ldap_connection(target, None, args, domain, username, password, lmhash, nthash)
 
 
-def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='', nthash='', aesKey='', kdcHost=None, TGT=None, TGS=None, useCache=True):
+def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='', nthash='', aesKey='', kdcHost=None, TGT=None, TGS=None, useCache=True, debug=False):
     from pyasn1.codec.ber import encoder, decoder
     from pyasn1.type.univ import noValue
     """
@@ -241,9 +271,11 @@ def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='
             # retrieve domain information from CCache file if needed
             if domain == '':
                 domain = ccache.principal.realm['data'].decode('utf-8')
-                logging.debug('Domain retrieved from CCache: %s' % domain)
+                if debug:
+                    print('[debug] Domain retrieved from CCache: %s' % domain)
 
-            logging.debug('Using Kerberos Cache: %s' % os.getenv('KRB5CCNAME'))
+            if debug:
+                print('[debug] Using Kerberos Cache: %s' % os.getenv('KRB5CCNAME'))
             principal = 'ldap/%s@%s' % (target.upper(), domain.upper())
 
             creds = ccache.getCredential(principal)
@@ -253,20 +285,25 @@ def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='
                 creds = ccache.getCredential(principal)
                 if creds is not None:
                     TGT = creds.toTGT()
-                    logging.debug('Using TGT from cache')
+                    if debug:
+                        print('[debug] Using TGT from cache')
                 else:
-                    logging.debug('No valid credentials found in cache')
+                    if debug:
+                        print('[debug] No valid credentials found in cache')
             else:
                 TGS = creds.toTGS(principal)
-                logging.debug('Using TGS from cache')
+                if debug:
+                    print('[debug] Using TGS from cache')
 
             # retrieve user information from CCache file if needed
             if user == '' and creds is not None:
                 user = creds['client'].prettyPrint().split(b'@')[0].decode('utf-8')
-                logging.debug('Username retrieved from CCache: %s' % user)
+                if debug:
+                    print('[debug] Username retrieved from CCache: %s' % user)
             elif user == '' and len(ccache.principal.components) > 0:
                 user = ccache.principal.components[0]['data'].decode('utf-8')
-                logging.debug('Username retrieved from CCache: %s' % user)
+                if debug:
+                    print('[debug] Username retrieved from CCache: %s' % user)
 
     # First of all, we need to get a TGT for the user
     userName = Principal(user, type=constants.PrincipalNameType.NT_PRINCIPAL.value)
@@ -348,37 +385,31 @@ def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='
     return True
 
 
-def init_logger(args):
-    # Init the example's logger theme and debug level
-    logger.init(args.ts)
-    if args.debug is True:
-        logging.getLogger().setLevel(logging.DEBUG)
-        # Print the Library's installation path
-        logging.debug(version.getInstallationPath())
-    else:
-        logging.getLogger().setLevel(logging.INFO)
-        logging.getLogger('impacket.smbserver').setLevel(logging.ERROR)
-
-
-def init_smb_session(args, target_ip, domain, username, password, address, lmhash, nthash, port=445):
+def init_smb_session(args, target_ip, domain, username, password, address, lmhash, nthash, port=445, debug=False):
     smbClient = SMBConnection(address, target_ip, sess_port=int(port))
     dialect = smbClient.getDialect()
     if dialect == SMB_DIALECT:
-        logging.debug("SMBv1 dialect used")
+        if debug:
+            print("[debug] SMBv1 dialect used")
     elif dialect == SMB2_DIALECT_002:
-        logging.debug("SMBv2.0 dialect used")
+        if debug:
+            print("[debug] SMBv2.0 dialect used")
     elif dialect == SMB2_DIALECT_21:
-        logging.debug("SMBv2.1 dialect used")
+        if debug:
+            print("[debug] SMBv2.1 dialect used")
     else:
-        logging.debug("SMBv3.0 dialect used")
+        if debug:
+            print("[debug] SMBv3.0 dialect used")
     if args.use_kerberos is True:
         smbClient.kerberosLogin(username, password, domain, lmhash, nthash, args.aesKey, args.dc_ip)
     else:
         smbClient.login(username, password, domain, lmhash, nthash)
     if smbClient.isGuestSession() > 0:
-        logging.debug("GUEST Session Granted")
+        if debug:
+            print("[debug] GUEST Session Granted")
     else:
-        logging.debug("USER Session Granted")
+        if debug:
+            print("[debug] USER Session Granted")
     return smbClient
 
 
@@ -467,7 +498,6 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
 
 if __name__ == '__main__':
     args = parse_args()
-    init_logger(args)
 
     auth_lm_hash = ""
     auth_nt_hash = ""
