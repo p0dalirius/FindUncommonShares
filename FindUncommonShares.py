@@ -12,21 +12,22 @@ from impacket.smbconnection import SMBConnection, SMB2_DIALECT_002, SMB2_DIALECT
 from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
 import argparse
 import binascii
+import dns.resolver, dns.exception
 import json
 import ldap3
 import logging
 import nslookup
 import os
+import sqlite3
 import ssl
 import sys
 import threading
 import time
 import traceback
-import dns.resolver, dns.exception
 import xlsxwriter
 
 
-VERSION = "2.2"
+VERSION = "2.3"
 
 
 COMMON_SHARES = [
@@ -132,18 +133,19 @@ def parse_args():
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
 
     output = parser.add_argument_group('Output files')
-    output.add_argument("--xlsx", dest="xlsx", type=str, default=None, required=False, help="Output file to store the results in. (default: shares.xlsx)")
-    output.add_argument("--json", dest="json", type=str, default=None, required=False, help="Output file to store the results in. (default: shares.json)")
+    output.add_argument("--export-xlsx", dest="export_xlsx", type=str, default=None, required=False, help="Output XLSX file to store the results in.")
+    output.add_argument("--export-json", dest="export_json", type=str, default=None, required=False, help="Output JSON file to store the results in.")
+    output.add_argument("--export-sqlite", dest="export_sqlite", type=str, default=None, required=False, help="Output SQLITE3 file to store the results in.")
 
     authconn = parser.add_argument_group('Authentication & connection')
     authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
-    authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", help="(FQDN) domain to authenticate to")
-    authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", help="user to authenticate with")
+    authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", default="", help="(FQDN) domain to authenticate to")
+    authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", default="", help="user to authenticate with")
 
     secret = parser.add_argument_group("Credentials")
     cred = secret.add_mutually_exclusive_group()
     cred.add_argument("--no-pass", default=False, action="store_true", help="Don't ask for password (useful for -k)")
-    cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", help="Password to authenticate with")
+    cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", default="", help="Password to authenticate with")
     cred.add_argument("-H", "--hashes", dest="auth_hashes", action="store", metavar="[LMHASH:]NTHASH", help='NT/LM hashes, format is LMhash:NThash')
     cred.add_argument("--aes-key", dest="auth_key", action="store", metavar="hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
     secret.add_argument("-k", "--kerberos", dest="use_kerberos", action="store_true", help='Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line')
@@ -152,18 +154,18 @@ def parse_args():
         parser.print_help()
         sys.exit(1)
 
-    args = parser.parse_args()
+    options = parser.parse_args()
 
-    if args.auth_password is None and args.no_pass == False:
+    if options.auth_password is None and options.no_pass == False:
         from getpass import getpass
-        args.auth_password = getpass("Password:")
+        options.auth_password = getpass("Password:")
 
-    return args
+    return options
 
 
-def get_machine_name(args, domain):
-    if args.dc_ip is not None:
-        s = SMBConnection(args.dc_ip, args.dc_ip)
+def get_machine_name(options, domain):
+    if options.dc_ip is not None:
+        s = SMBConnection(options.dc_ip, options.dc_ip)
     else:
         s = SMBConnection(domain, domain)
     try:
@@ -176,7 +178,7 @@ def get_machine_name(args, domain):
     return s.getServerName()
 
 
-def init_ldap_connection(target, tls_version, args, domain, username, password, lmhash, nthash):
+def init_ldap_connection(target, tls_version, options, domain, username, password, lmhash, nthash):
     user = '%s\\%s' % (domain, username)
     if tls_version is not None:
         use_ssl = True
@@ -188,11 +190,11 @@ def init_ldap_connection(target, tls_version, args, domain, username, password, 
         tls = None
     ldap_server = ldap3.Server(target, get_info=ldap3.ALL, port=port, use_ssl=use_ssl, tls=tls)
 
-    if args.use_kerberos:
+    if options.use_kerberos:
         ldap_session = ldap3.Connection(ldap_server)
         ldap_session.bind()
-        ldap3_kerberos_login(ldap_session, target, username, password, domain, lmhash, nthash, args.auth_key, kdcHost=args.dc_ip)
-    elif args.auth_hashes is not None:
+        ldap3_kerberos_login(ldap_session, target, username, password, domain, lmhash, nthash, options.auth_key, kdcHost=options.dc_ip)
+    elif options.auth_hashes is not None:
         if lmhash == "":
             lmhash = "aad3b435b51404eeaad3b435b51404ee"
         ldap_session = ldap3.Connection(ldap_server, user=user, password=lmhash + ":" + nthash, authentication=ldap3.NTLM, auto_bind=True)
@@ -202,22 +204,22 @@ def init_ldap_connection(target, tls_version, args, domain, username, password, 
     return ldap_server, ldap_session
 
 
-def init_ldap_session(args, domain, username, password, lmhash, nthash):
-    if args.use_kerberos:
-        target = get_machine_name(args, domain)
+def init_ldap_session(options, domain, username, password, lmhash, nthash):
+    if options.use_kerberos:
+        target = get_machine_name(options, domain)
     else:
-        if args.dc_ip is not None:
-            target = args.dc_ip
+        if options.dc_ip is not None:
+            target = options.dc_ip
         else:
             target = domain
 
-    if args.use_ldaps is True:
+    if options.use_ldaps is True:
         try:
-            return init_ldap_connection(target, ssl.PROTOCOL_TLSv1_2, args, domain, username, password, lmhash, nthash)
+            return init_ldap_connection(target, ssl.PROTOCOL_TLSv1_2, options, domain, username, password, lmhash, nthash)
         except ldap3.core.exceptions.LDAPSocketOpenError:
-            return init_ldap_connection(target, ssl.PROTOCOL_TLSv1, args, domain, username, password, lmhash, nthash)
+            return init_ldap_connection(target, ssl.PROTOCOL_TLSv1, options, domain, username, password, lmhash, nthash)
     else:
-        return init_ldap_connection(target, None, args, domain, username, password, lmhash, nthash)
+        return init_ldap_connection(target, None, options, domain, username, password, lmhash, nthash)
 
 
 def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='', nthash='', aesKey='', kdcHost=None, TGT=None, TGS=None, useCache=True, debug=False):
@@ -385,7 +387,7 @@ def ldap3_kerberos_login(connection, target, user, password, domain='', lmhash='
     return True
 
 
-def init_smb_session(args, target_ip, domain, username, password, address, lmhash, nthash, port=445, debug=False):
+def init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash, port=445, debug=False):
     smbClient = SMBConnection(address, target_ip, sess_port=int(port))
     dialect = smbClient.getDialect()
     if dialect == SMB_DIALECT:
@@ -400,8 +402,8 @@ def init_smb_session(args, target_ip, domain, username, password, address, lmhas
     else:
         if debug:
             print("[debug] SMBv3.0 dialect used")
-    if args.use_kerberos is True:
-        smbClient.kerberosLogin(username, password, domain, lmhash, nthash, args.aesKey, args.dc_ip)
+    if options.use_kerberos is True:
+        smbClient.kerberosLogin(username, password, domain, lmhash, nthash, options.aesKey, options.dc_ip)
     else:
         smbClient.login(username, password, domain, lmhash, nthash)
     if smbClient.isGuestSession() > 0:
@@ -413,12 +415,12 @@ def init_smb_session(args, target_ip, domain, username, password, address, lmhas
     return smbClient
 
 
-def worker(args, target_name, domain, username, password, address, lmhash, nthash, results, lock):
-    target_ip = nslookup.Nslookup(dns_servers=[args.dc_ip], verbose=args.debug).dns_lookup(target_name).answer
+def worker(options, target_name, domain, username, password, address, lmhash, nthash, results, lock):
+    target_ip = nslookup.Nslookup(dns_servers=[options.dc_ip], verbose=options.debug).dns_lookup(target_name).answer
     if len(target_ip) != 0:
         target_ip = target_ip[0]
         try:
-            smbClient = init_smb_session(args, target_ip, domain, username, password, address, lmhash, nthash)
+            smbClient = init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash)
             resp = smbClient.listShares()
             for share in resp:
                 # SHARE_INFO_1 structure (lmshare.h)
@@ -432,99 +434,102 @@ def worker(args, target_name, domain, username, password, address, lmhash, nthas
                     results[target_name] = []
                 results[target_name].append(
                     {
-                        "share": sharename,
-                        "computer": target_name,
-                        "hidden": (True if sharename.endswith('$') else False),
-                        "uncpath": "\\".join(['', '', target_ip, sharename, '']),
-                        "comment": sharecomment,
-                        "type": {
-                            "stype_value": sharetype,
-                            "stype_flags": STYPE_MASK(sharetype)
+                        "computer": {
+                            "fqdn": target_name,
+                            "ip": target_ip
+                        },
+                        "share": {
+                            "name": sharename,
+                            "comment": sharecomment,
+                            "hidden": (True if sharename.endswith('$') else False),
+                            "uncpath": "\\".join(['', '', target_ip, sharename, '']),
+                            "type": {
+                                "stype_value": sharetype,
+                                "stype_flags": STYPE_MASK(sharetype)
+                            }
                         }
                     }
                 )
                 lock.release()
 
                 if sharename not in COMMON_SHARES:
-                    if not args.quiet:
+                    if not options.quiet:
                         if len(sharecomment) != 0:
-                            if args.colors:
+                            if options.colors:
                                 if sharename.endswith('$'):
-                                    if not args.ignore_hidden_shares:
+                                    if not options.ignore_hidden_shares:
                                         print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
                                 else:
                                     print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
                             else:
                                 print("[>] Found '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
                         else:
-                            if args.colors:
+                            if options.colors:
                                 if sharename.endswith('$'):
-                                    if not args.ignore_hidden_shares:
+                                    if not options.ignore_hidden_shares:
                                         print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
                                 else:
                                     print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
                             else:
                                 if sharename.endswith('$'):
-                                    if not args.ignore_hidden_shares:
+                                    if not options.ignore_hidden_shares:
                                         print("[>] Found '%s' on '%s'" % (sharename, address))
                                 else:
                                     print("[>] Found '%s' on '%s'" % (sharename, address))
-                elif args.debug and not args.quiet:
+                elif options.debug and not options.quiet:
                     if len(sharecomment) != 0:
-                        if args.colors:
-                            if sharename.endswith('$') and not args.ignore_hidden_shares:
+                        if options.colors:
+                            if sharename.endswith('$') and not options.ignore_hidden_shares:
                                 print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
                             else:
                                 print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
                         else:
                             print("[>] Skipping common share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
                     else:
-                        if args.colors:
-                            if sharename.endswith('$') and not args.ignore_hidden_shares:
+                        if options.colors:
+                            if sharename.endswith('$') and not options.ignore_hidden_shares:
                                 print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
                             else:
                                 print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
                         else:
                             if sharename.endswith('$'):
-                                if not args.ignore_hidden_shares:
+                                if not options.ignore_hidden_shares:
                                     print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
                             else:
                                 print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
 
         except Exception as e:
-            if args.debug:
+            if options.debug:
                 print(e)
 
 
 if __name__ == '__main__':
-    args = parse_args()
+    options = parse_args()
 
     auth_lm_hash = ""
     auth_nt_hash = ""
-    if args.auth_hashes is not None:
-        if ":" in args.auth_hashes:
-            auth_lm_hash = args.auth_hashes.split(":")[0]
-            auth_nt_hash = args.auth_hashes.split(":")[1]
+    if options.auth_hashes is not None:
+        if ":" in options.auth_hashes:
+            auth_lm_hash = options.auth_hashes.split(":")[0]
+            auth_nt_hash = options.auth_hashes.split(":")[1]
         else:
-            auth_nt_hash = args.auth_hashes
+            auth_nt_hash = options.auth_hashes
 
     ldap_server, ldap_session = init_ldap_session(
-        args=args,
-        domain=args.auth_domain,
-        username=args.auth_username,
-        password=args.auth_password,
+        options=options,
+        domain=options.auth_domain,
+        username=options.auth_username,
+        password=options.auth_password,
         lmhash=auth_lm_hash,
         nthash=auth_nt_hash
     )
 
-    if not args.quiet:
+    if not options.quiet:
         print("[>] Extracting all computers ...")
     computers = get_domain_computers(ldap_server, ldap_session)
 
-    if not args.quiet:
-        print("[+] Found %d computers in the domain." % len(computers.keys()))
-        print()
-
+    if not options.quiet:
+        print("[+] Found %d computers in the domain. \n" % len(computers.keys()))
         print("[>] Enumerating shares ...")
 
     results = {}
@@ -532,26 +537,43 @@ if __name__ == '__main__':
     # Setup thread lock to properly write in the file
     lock = threading.Lock()
     # Waits for all the threads to be completed
-    with ThreadPoolExecutor(max_workers=min(args.threads, len(computers.keys()))) as tp:
+    with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
         for ck in computers.keys():
             computer = computers[ck]
-            tp.submit(worker, args, computer['dNSHostName'], args.auth_domain, args.auth_username, args.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash, results, lock)
+            tp.submit(worker, options, computer['dNSHostName'], options.auth_domain, options.auth_username, options.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash, results, lock)
 
-    if args.json is not None:
-        print("[>] Exporting results to %s ..." % args.json)
-        f = open(args.json, "w")
+    if options.export_json is not None:
+        print("[>] Exporting results to %s ... " % options.export_json, end="")
+        sys.stdout.flush()
+        basepath = os.path.dirname(options.export_json)
+        filename = os.path.basename(options.export_json)
+        if basepath not in [".", ""]:
+            if not os.path.exists(basepath):
+                os.makedirs(basepath)
+            path_to_file = basepath + os.path.sep + filename
+        else:
+            path_to_file = filename
+        f = open(path_to_file, "w")
         f.write(json.dumps(results, indent=4)+"\n")
         f.close()
-        print("[+] done.")
+        print("done.")
 
-    if args.xlsx is not None:
-        print("[>] Exporting results to %s ..." % args.xlsx)
-
-        workbook = xlsxwriter.Workbook(args.xlsx)
+    if options.export_xlsx is not None:
+        print("[>] Exporting results to %s ... " % options.export_xlsx, end="")
+        sys.stdout.flush()
+        basepath = os.path.dirname(options.export_xlsx)
+        filename = os.path.basename(options.export_xlsx)
+        if basepath not in [".", ""]:
+            if not os.path.exists(basepath):
+                os.makedirs(basepath)
+            path_to_file = basepath + os.path.sep + filename
+        else:
+            path_to_file = filename
+        workbook = xlsxwriter.Workbook(path_to_file)
         worksheet = workbook.add_worksheet()
 
         header_format = workbook.add_format({'bold': 1})
-        header_fields = ["computer", "share", "comment", "hidden"]
+        header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden"]
         for k in range(len(header_fields)):
             worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
         worksheet.set_row(0, 20, header_format)
@@ -561,9 +583,39 @@ if __name__ == '__main__':
         for computername in results.keys():
             computer = results[computername]
             for share in computer:
-                data = [share.get(key, "") for key in header_fields]
+                data = [share["computer"]["fqdn"], share["computer"]["ip"], share["share"]["name"], share["share"]["comment"], share["share"]["hidden"]]
                 worksheet.write_row(row_id, 0, data)
                 row_id += 1
         worksheet.autofilter(0, 0, row_id, len(header_fields)-1)
         workbook.close()
-        print("[+] done.")
+        print("done.")
+
+    if options.export_sqlite is not None:
+        print("[>] Exporting results to %s ..." % options.export_sqlite, end="")
+        sys.stdout.flush()
+        basepath = os.path.dirname(options.export_sqlite)
+        filename = os.path.basename(options.export_sqlite)
+        if basepath not in [".", ""]:
+            if not os.path.exists(basepath):
+                os.makedirs(basepath)
+            path_to_file = basepath + os.path.sep + filename
+        else:
+            path_to_file = filename
+
+        conn = sqlite3.connect(path_to_file)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS shares(fqdn VARCHAR(255), ip VARCHAR(255), shi1_netname VARCHAR(255), shi1_remark VARCHAR(255), shi1_type INTEGER);")
+        for computername in results.keys():
+            for share in results[computername]:
+                cursor.execute("INSERT INTO shares VALUES (?, ?, ?, ?, ?)", (
+                        share["computer"]["fqdn"],
+                        share["computer"]["ip"],
+                        share["share"]["name"],
+                        share["share"]["comment"],
+                        share["share"]["type"]["stype_value"]
+                    )
+                )
+        conn.commit()
+        conn.close()
+        print("done.")
+

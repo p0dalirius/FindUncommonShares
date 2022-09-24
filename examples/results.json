@@ -1,0 +1,101 @@
+{
+    "DC2016.COERCE.local": [
+        {
+            "computer": {
+                "fqdn": "DC2016.COERCE.local",
+                "ip": "192.168.1.46"
+            },
+            "share": {
+                "name": "ADMIN$",
+                "comment": "Remote Admin",
+                "hidden": true,
+                "uncpath": "\\\\192.168.1.46\\ADMIN$\\",
+                "type": {
+                    "stype_value": 2147483648,
+                    "stype_flags": [
+                        "STYPE_DISKTREE",
+                        "STYPE_TEMPORARY"
+                    ]
+                }
+            }
+        },
+        {
+            "computer": {
+                "fqdn": "DC2016.COERCE.local",
+                "ip": "192.168.1.46"
+            },
+            "share": {
+                "name": "C$",
+                "comment": "Default share",
+                "hidden": true,
+                "uncpath": "\\\\192.168.1.46\\C$\\",
+                "type": {
+                    "stype_value": 2147483648,
+                    "stype_flags": [
+                        "STYPE_DISKTREE",
+                        "STYPE_TEMPORARY"
+                    ]
+                }
+            }
+        },
+        {
+            "computer": {
+                "fqdn": "DC2016.COERCE.local",
+                "ip": "192.168.1.46"
+            },
+            "share": {
+                "name": "IPC$",
+                "comment": "Remote IPC",
+                "hidden": true,
+                "uncpath": "\\\\192.168.1.46\\IPC$\\",
+                "type": {
+                    "stype_value": 2147483651,
+                    "stype_flags": [
+                        "STYPE_IPC",
+                        "STYPE_TEMPORARY"
+                    ]
+                }
+            }
+        },
+        {
+            "computer": {
+                "fqdn": "DC2016.COERCE.local",
+                "ip": "192.168.1.46"
+            },
+            "share": {
+                "name": "NETLOGON",
+                "comment": "Logon server share ",
+                "hidden": false,
+                "uncpath": "\\\\192.168.1.46\\NETLOGON\\",
+                "type": {
+                    "stype_value": 0,
+                    "stype_flags": [
+                        "STYPE_DISKTREE",
+                        "STYPE_SPECIAL",
+                        "STYPE_TEMPORARY"
+                    ]
+                }
+            }
+        },
+        {
+            "computer": {
+                "fqdn": "DC2016.COERCE.local",
+                "ip": "192.168.1.46"
+            },
+            "share": {
+                "name": "SYSVOL",
+                "comment": "Logon server share ",
+                "hidden": false,
+                "uncpath": "\\\\192.168.1.46\\SYSVOL\\",
+                "type": {
+                    "stype_value": 0,
+                    "stype_flags": [
+                        "STYPE_DISKTREE",
+                        "STYPE_SPECIAL",
+                        "STYPE_TEMPORARY"
+                    ]
+                }
+            }
+        }
+    ]
+}

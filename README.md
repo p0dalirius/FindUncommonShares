@@ -1,4 +1,4 @@
-# FindUncommonShares
+![](.github/banner.png)
 
 <p align="center">
     The script <a href="https://github.com/p0dalirius/FindUncommonShares/blob/main/FindUncommonShares.py">FindUncommonShares.py</a> is a Python equivalent of <a href="https://github.com/darkoperator/Veil-PowerView/">PowerView</a>'s <a href="https://github.com/darkoperator/Veil-PowerView/blob/master/PowerView/functions/Invoke-ShareFinder.ps1">Invoke-ShareFinder.ps1</a> allowing to quickly find uncommon shares in vast Windows Active Directory Domains.
@@ -10,26 +10,25 @@
 </p>
 
 
-![](.github/banner.png)
-
-
 ## Features
 
  - [x] Only requires a **low privileges domain user account**.
  - [x] Automatically gets the list of all computers from the domain controller's LDAP.
  - [x] Ignore the hidden shares (ending with `$`) with `--ignore-hidden-shares`.
  - [x] Multithreaded connections to discover SMB shares.
- - [x] JSON export of the found shares, with IP, name, comment, flags and UNC path with `--json <file.json>`.
- - [x] XLSX export of the found shares, with IP, name, comment, flags and UNC path with `--xlsx <file.xlsx>`.
+ - [x] Export results in JSON with IP, name, comment, flags and UNC path with `--export-json <file.json>`.
+ - [x] Export results in XLSX with IP, name, comment, flags and UNC path with `--export-xlsx <file.xlsx>`.
+ - [x] Export results in SQLITE3 with IP, name, comment, flags and UNC path with `--export-sqlite <file.db>`.
  - [x] Iterate on LDAP result pages to get every computer of the domain, no matter the size.
 
 ## Usage
 
 ```              
 $ ./FindUncommonShares.py -h
-FindUncommonShares v2.2 - by @podalirius_
+FindUncommonShares v2.3 - by @podalirius_
 
-usage: FindUncommonShares.py [-h] [--use-ldaps] [-q] [--debug] [-no-colors] [-I] [-t THREADS] [--xlsx XLSX] [--json JSON] --dc-ip ip address [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
+usage: FindUncommonShares.py [-h] [--use-ldaps] [-q] [--debug] [-no-colors] [-I] [-t THREADS] [--export-xlsx EXPORT_XLSX] [--export-json EXPORT_JSON] [--export-sqlite EXPORT_SQLITE] --dc-ip ip address [-d DOMAIN] [-u USER]
+                             [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
 
 Find uncommon SMB shares on remote machines.
 
@@ -45,8 +44,12 @@ optional arguments:
                         Number of threads (default: 20)
 
 Output files:
-  --xlsx XLSX           Output file to store the results in. (default: shares.xlsx)
-  --json JSON           Output file to store the results in. (default: shares.json)
+  --export-xlsx EXPORT_XLSX
+                        Output XLSX file to store the results in.
+  --export-json EXPORT_JSON
+                        Output JSON file to store the results in.
+  --export-sqlite EXPORT_SQLITE
+                        Output SQLITE3 file to store the results in.
 
 Authentication & connection:
   --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter
@@ -62,14 +65,13 @@ Credentials:
                         NT/LM hashes, format is LMhash:NThash
   --aes-key hex key     AES key to use for Kerberos Authentication (128 or 256 bits)
   -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line
-
 ```
 
 ## Examples :
 
 ```
-$ ./FindUncommonShares.py -u 'Administrator' -d 'LAB.local' -p 'Admin123!' --dc-ip 192.168.2.1
-FindUncommonShares v2.2 - by @podalirius_
+$ ./FindUncommonShares.py -u 'user1' -d 'LAB.local' -p 'P@ssw0rd!' --dc-ip 192.168.2.1
+FindUncommonShares v2.3 - by @podalirius_
 
 [>] Extracting all computers ...
 [+] Found 2 computers.
@@ -82,31 +84,28 @@ FindUncommonShares v2.2 - by @podalirius_
 $
 ```
 
-Results are exported in JSON entries:
-
-```json
-{"share": "Users", "uncpath": "\\\\192.168.2.1\\Users\\", "computer": "DC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
-{"share": "WeirdShare", "uncpath": "\\\\192.168.2.1\\WeirdShare\\", "computer": "DC01.LAB.local", "comment": "Test comment", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
-{"share": "AnotherShare", "uncpath": "\\\\192.168.2.11\\AnotherShare\\", "computer": "PC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
-{"share": "Users", "uncpath": "\\\\192.168.2.11\\Users\\", "computer": "PC01.LAB.local", "comment": "", "type": {"stype_value": 0, "stype_flags": ["STYPE_DISKTREE", "STYPE_SPECIAL", "STYPE_TEMPORARY"]}}
-```
 
 Each JSON entry looks like this:
 
 ```json
 {
-  "share": "AnotherShare",
-  "uncpath": "\\\\192.168.2.11\\AnotherShare\\",
-  "computer": "PC01.LAB.local",
-  "comment": "",
-  "type": {
-    "stype_value": 0,
-    "stype_flags": [
-      "STYPE_DISKTREE",
-      "STYPE_SPECIAL",
-      "STYPE_TEMPORARY"
-    ]
-  }
+    "computer": {
+        "fqdn": "DC01.LAB.local",
+        "ip": "192.168.1.1"
+    },
+    "share": {
+        "name": "ADMIN$",
+        "comment": "Remote Admin",
+        "hidden": true,
+        "uncpath": "\\\\192.168.1.46\\ADMIN$\\",
+        "type": {
+            "stype_value": 2147483648,
+            "stype_flags": [
+                "STYPE_DISKTREE",
+                "STYPE_TEMPORARY"
+            ]
+        }
+    }
 }
 ```
 
