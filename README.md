@@ -25,7 +25,7 @@
 
 ```              
 $ ./FindUncommonShares.py -h
-FindUncommonShares v2.3 - by @podalirius_
+FindUncommonShares v2.4 - by @podalirius_
 
 usage: FindUncommonShares.py [-h] [--use-ldaps] [-q] [--debug] [-no-colors] [-I] [-t THREADS] [--export-xlsx EXPORT_XLSX] [--export-json EXPORT_JSON] [--export-sqlite EXPORT_SQLITE] --dc-ip ip address [-d DOMAIN] [-u USER]
                              [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]

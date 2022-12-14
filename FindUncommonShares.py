@@ -16,7 +16,6 @@ import dns.resolver, dns.exception
 import json
 import ldap3
 import logging
-import nslookup
 import os
 import sqlite3
 import ssl
@@ -25,9 +24,10 @@ import threading
 import time
 import traceback
 import xlsxwriter
+import dns.resolver, dns.exception
 
 
-VERSION = "2.3"
+VERSION = "2.4"
 
 
 COMMON_SHARES = [
@@ -416,7 +416,42 @@ def init_smb_session(options, target_ip, domain, username, password, address, lm
 
 
 def worker(options, target_name, domain, username, password, address, lmhash, nthash, results, lock):
-    target_ip = nslookup.Nslookup(dns_servers=[options.dc_ip], verbose=options.debug).dns_lookup(target_name).answer
+    dns_resolver = dns.resolver.Resolver()
+    dns_resolver.nameservers = [options.dc_ip]
+    dns_answer = None
+    # Try UDP
+    try:
+        dns_answer = dns_resolver.resolve(domain, rdtype=record_type, tcp=False)
+    except dns.resolver.NXDOMAIN:
+        # the domain does not exist so dns resolutions remain empty
+        pass
+    except dns.resolver.NoAnswer as e:
+        # domains existing but not having AAAA records is common
+        pass
+    except dns.resolver.NoNameservers as e:
+        pass
+    except dns.exception.DNSException as e:
+        pass
+
+    if dns_answer is None:
+        # Try TCP
+        try:
+            dns_answer = dns_resolver.resolve(domain, rdtype=record_type, tcp=True)
+        except dns.resolver.NXDOMAIN:
+            # the domain does not exist so dns resolutions remain empty
+            pass
+        except dns.resolver.NoAnswer as e:
+            # domains existing but not having AAAA records is common
+            pass
+        except dns.resolver.NoNameservers as e:
+            pass
+        except dns.exception.DNSException as e:
+            pass
+
+    target_ip = []
+    if dns_answer is not None:
+        target_ip = dns_answer.answer
+
     if len(target_ip) != 0:
         target_ip = target_ip[0]
         try:
