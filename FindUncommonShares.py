@@ -10,15 +10,17 @@ from enum import Enum
 from impacket import version
 from impacket.smbconnection import SMBConnection, SMB2_DIALECT_002, SMB2_DIALECT_21, SMB_DIALECT, SessionError
 from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
-from sectools.windows.ldap import raw_ldap_query
+from sectools.windows.ldap import raw_ldap_query, init_ldap_session
 from sectools.windows.crypto import nt_hash, parse_lm_nt_hashes
 import argparse
 import binascii
-import dns.resolver, dns.exception
+import dns.resolver
+import dns.exception
 import json
 import ldap3
 import logging
 import os
+import re
 import sqlite3
 import ssl
 import sys
@@ -26,10 +28,9 @@ import threading
 import time
 import traceback
 import xlsxwriter
-import dns.resolver, dns.exception
 
 
-VERSION = "2.4"
+VERSION = "2.5"
 
 
 COMMON_SHARES = [
@@ -39,6 +40,119 @@ COMMON_SHARES = [
     "fax$", "FAX$",
     "SYSVOL", "NETLOGON"
 ]
+
+
+class MicrosoftDNS(object):
+    """
+    Documentation for class MicrosoftDNS
+    """
+
+    __wildcard_dns_cache = {}
+
+    def __init__(self, dnsserver, auth_domain, auth_username, auth_password, auth_dc_ip, auth_lm_hash, auth_nt_hash, verbose=False):
+        super(MicrosoftDNS, self).__init__()
+        self.dnsserver = dnsserver
+        self.verbose = verbose
+        self.auth_domain = auth_domain
+        self.auth_username = auth_username
+        self.auth_password = auth_password
+        self.auth_dc_ip = auth_dc_ip
+        self.auth_lm_hash = auth_lm_hash
+        self.auth_nt_hash = auth_nt_hash
+
+    def resolve(self, target_name):
+        target_ips = []
+        for rdtype in ["A", "AAAA"]:
+            dns_answer = self.get_record(value=target_name, rdtype=rdtype)
+            if dns_answer is not None:
+                for record in dns_answer:
+                    target_ips.append(record.address)
+        if self.verbose and len(target_ips) == 0:
+            print("[debug] No records found for %s." % target_name)
+        return target_ips
+
+    def get_record(self, rdtype, value):
+        dns_resolver = dns.resolver.Resolver()
+        dns_resolver.nameservers = [self.dnsserver]
+        dns_answer = None
+        # Try UDP
+        try:
+            dns_answer = dns_resolver.resolve(value, rdtype=rdtype, tcp=False)
+        except dns.resolver.NXDOMAIN:
+            # the domain does not exist so dns resolutions remain empty
+            pass
+        except dns.resolver.NoAnswer as e:
+            # domains existing but not having AAAA records is common
+            pass
+        except dns.resolver.NoNameservers as e:
+            pass
+        except dns.exception.DNSException as e:
+            pass
+
+        if dns_answer is None:
+            # Try TCP
+            try:
+                dns_answer = dns_resolver.resolve(value, rdtype=rdtype, tcp=True)
+            except dns.resolver.NXDOMAIN:
+                # the domain does not exist so dns resolutions remain empty
+                pass
+            except dns.resolver.NoAnswer as e:
+                # domains existing but not having AAAA records is common
+                pass
+            except dns.resolver.NoNameservers as e:
+                pass
+            except dns.exception.DNSException as e:
+                pass
+
+        if self.verbose and dns_answer is not None:
+            for record in dns_answer:
+                print("[debug] '%s' record found for %s: %s" % (rdtype, value, record.address))
+
+        return dns_answer
+
+    def check_wildcard_dns(self):
+        ldap_server, ldap_session = init_ldap_session(
+            auth_domain=self.auth_domain,
+            auth_dc_ip=self.auth_dc_ip,
+            auth_username=self.auth_username,
+            auth_password=self.auth_password,
+            auth_lm_hash=self.auth_lm_hash,
+            auth_nt_hash=self.auth_nt_hash,
+            use_ldaps=False
+        )
+
+        target_dn = "CN=MicrosoftDNS,DC=DomainDnsZones," + ldap_server.info.other["rootDomainNamingContext"][0]
+
+        ldapresults = list(ldap_session.extend.standard.paged_search(target_dn, "(&(objectClass=dnsNode)(dc=\\2A))", attributes=["distinguishedName", "dNSTombstoned"]))
+
+        results = {}
+        for entry in ldapresults:
+            if entry['type'] != 'searchResEntry':
+                continue
+            results[entry['dn']] = entry["attributes"]
+
+        if len(results.keys()) != 0:
+            print("[!] WARNING! Wildcard DNS entries found, dns resolution will not be consistent.")
+            for dn, data in results.items():
+                fqdn = re.sub(',CN=MicrosoftDNS,DC=DomainDnsZones,DC=DOMAIN,DC=local$', '', dn)
+                fqdn = '.'.join([dc.split('=')[1] for dc in fqdn.split(',')])
+
+                ips = self.resolve(fqdn)
+
+                if data["dNSTombstoned"]:
+                    print("  | %s ──> %s (set to be removed)" % (dn, ips))
+                else:
+                    print("  | %s ──> %s" % (dn, ips))
+
+                # Cache found wildcard dns
+                for ip in ips:
+                    if fqdn not in self.__wildcard_dns_cache.keys():
+                        self.__wildcard_dns_cache[fqdn] = {}
+                    if ip not in self.__wildcard_dns_cache[fqdn].keys():
+                        self.__wildcard_dns_cache[fqdn][ip] = []
+                    self.__wildcard_dns_cache[fqdn][ip].append(data)
+            print()
+        return results
 
 
 def STYPE_MASK(stype_value):
@@ -80,13 +194,96 @@ def STYPE_MASK(stype_value):
     return flags
 
 
+def export_json(options, results):
+    print("[>] Exporting results to %s ... " % options.export_json, end="")
+    sys.stdout.flush()
+    basepath = os.path.dirname(options.export_json)
+    filename = os.path.basename(options.export_json)
+    if basepath not in [".", ""]:
+        if not os.path.exists(basepath):
+            os.makedirs(basepath)
+        path_to_file = basepath + os.path.sep + filename
+    else:
+        path_to_file = filename
+    f = open(path_to_file, "w")
+    f.write(json.dumps(results, indent=4) + "\n")
+    f.close()
+    print("done.")
+
+
+def export_xlsx(options, results):
+    print("[>] Exporting results to %s ... " % options.export_xlsx, end="")
+    sys.stdout.flush()
+    basepath = os.path.dirname(options.export_xlsx)
+    filename = os.path.basename(options.export_xlsx)
+    if basepath not in [".", ""]:
+        if not os.path.exists(basepath):
+            os.makedirs(basepath)
+        path_to_file = basepath + os.path.sep + filename
+    else:
+        path_to_file = filename
+    workbook = xlsxwriter.Workbook(path_to_file)
+    worksheet = workbook.add_worksheet()
+
+    header_format = workbook.add_format({'bold': 1})
+    header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden"]
+    for k in range(len(header_fields)):
+        worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
+    worksheet.set_row(0, 20, header_format)
+    worksheet.write_row(0, 0, header_fields)
+
+    row_id = 1
+    for computername in results.keys():
+        computer = results[computername]
+        for share in computer:
+            data = [share["computer"]["fqdn"], share["computer"]["ip"], share["share"]["name"], share["share"]["comment"], share["share"]["hidden"]]
+            worksheet.write_row(row_id, 0, data)
+            row_id += 1
+    worksheet.autofilter(0, 0, row_id, len(header_fields) - 1)
+    workbook.close()
+    print("done.")
+
+
+def export_sqlite(options, results):
+    print("[>] Exporting results to %s ..." % options.export_sqlite, end="")
+    sys.stdout.flush()
+    basepath = os.path.dirname(options.export_sqlite)
+    filename = os.path.basename(options.export_sqlite)
+    if basepath not in [".", ""]:
+        if not os.path.exists(basepath):
+            os.makedirs(basepath)
+        path_to_file = basepath + os.path.sep + filename
+    else:
+        path_to_file = filename
+
+    conn = sqlite3.connect(path_to_file)
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS shares(fqdn VARCHAR(255), ip VARCHAR(255), shi1_netname VARCHAR(255), shi1_remark VARCHAR(255), shi1_type INTEGER);")
+    for computername in results.keys():
+        for share in results[computername]:
+            cursor.execute("INSERT INTO shares VALUES (?, ?, ?, ?, ?)", (
+                share["computer"]["fqdn"],
+                share["computer"]["ip"],
+                share["share"]["name"],
+                share["share"]["comment"],
+                share["share"]["type"]["stype_value"]
+            )
+                           )
+    conn.commit()
+    conn.close()
+    print("done.")
+
+
 def parse_args():
     print("FindUncommonShares v%s - by @podalirius_\n" % VERSION)
 
     parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
+
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose mode. (default: False)')
+
     parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="Show no information at all.")
-    parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode.")
+    parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode. (default: False)")
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
     parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
@@ -292,6 +489,19 @@ if __name__ == '__main__':
     options = parse_args()
     auth_lm_hash, auth_nt_hash = parse_lm_nt_hashes(options.auth_hashes)
 
+    mdns = MicrosoftDNS(
+        dnsserver=options.dc_ip,
+        auth_domain=options.auth_domain,
+        auth_username=options.auth_username,
+        auth_password=options.auth_password,
+        auth_dc_ip=options.dc_ip,
+        auth_lm_hash=auth_lm_hash,
+        auth_nt_hash=auth_nt_hash,
+        verbose=options.verbose
+    )
+    mdns.check_wildcard_dns()
+
+
     if not options.quiet:
         print("[>] Extracting all computers ...")
     computers = raw_ldap_query(
@@ -319,80 +529,13 @@ if __name__ == '__main__':
             tp.submit(worker, options, computer['dNSHostName'], options.auth_domain, options.auth_username, options.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash, results, lock)
 
     if options.export_json is not None:
-        print("[>] Exporting results to %s ... " % options.export_json, end="")
-        sys.stdout.flush()
-        basepath = os.path.dirname(options.export_json)
-        filename = os.path.basename(options.export_json)
-        if basepath not in [".", ""]:
-            if not os.path.exists(basepath):
-                os.makedirs(basepath)
-            path_to_file = basepath + os.path.sep + filename
-        else:
-            path_to_file = filename
-        f = open(path_to_file, "w")
-        f.write(json.dumps(results, indent=4)+"\n")
-        f.close()
-        print("done.")
+        export_json(options, results)
 
     if options.export_xlsx is not None:
-        print("[>] Exporting results to %s ... " % options.export_xlsx, end="")
-        sys.stdout.flush()
-        basepath = os.path.dirname(options.export_xlsx)
-        filename = os.path.basename(options.export_xlsx)
-        if basepath not in [".", ""]:
-            if not os.path.exists(basepath):
-                os.makedirs(basepath)
-            path_to_file = basepath + os.path.sep + filename
-        else:
-            path_to_file = filename
-        workbook = xlsxwriter.Workbook(path_to_file)
-        worksheet = workbook.add_worksheet()
-
-        header_format = workbook.add_format({'bold': 1})
-        header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden"]
-        for k in range(len(header_fields)):
-            worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
-        worksheet.set_row(0, 20, header_format)
-        worksheet.write_row(0, 0, header_fields)
-
-        row_id = 1
-        for computername in results.keys():
-            computer = results[computername]
-            for share in computer:
-                data = [share["computer"]["fqdn"], share["computer"]["ip"], share["share"]["name"], share["share"]["comment"], share["share"]["hidden"]]
-                worksheet.write_row(row_id, 0, data)
-                row_id += 1
-        worksheet.autofilter(0, 0, row_id, len(header_fields)-1)
-        workbook.close()
-        print("done.")
+        export_xlsx(options, results)
 
     if options.export_sqlite is not None:
-        print("[>] Exporting results to %s ..." % options.export_sqlite, end="")
-        sys.stdout.flush()
-        basepath = os.path.dirname(options.export_sqlite)
-        filename = os.path.basename(options.export_sqlite)
-        if basepath not in [".", ""]:
-            if not os.path.exists(basepath):
-                os.makedirs(basepath)
-            path_to_file = basepath + os.path.sep + filename
-        else:
-            path_to_file = filename
+        export_sqlite(options, results)
 
-        conn = sqlite3.connect(path_to_file)
-        cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS shares(fqdn VARCHAR(255), ip VARCHAR(255), shi1_netname VARCHAR(255), shi1_remark VARCHAR(255), shi1_type INTEGER);")
-        for computername in results.keys():
-            for share in results[computername]:
-                cursor.execute("INSERT INTO shares VALUES (?, ?, ?, ?, ?)", (
-                        share["computer"]["fqdn"],
-                        share["computer"]["ip"],
-                        share["share"]["name"],
-                        share["share"]["comment"],
-                        share["share"]["type"]["stype_value"]
-                    )
-                )
-        conn.commit()
-        conn.close()
-        print("done.")
     print("[+] Bye Bye!")
 
