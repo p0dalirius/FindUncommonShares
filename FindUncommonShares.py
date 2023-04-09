@@ -22,6 +22,7 @@ import logging
 import os
 import re
 import sqlite3
+import socket
 import ssl
 import sys
 import threading
@@ -274,6 +275,16 @@ def export_sqlite(options, results):
     print("done.")
 
 
+def is_port_open(target, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        # Non-existant domains cause a lot of errors, added error handling
+        try:
+            return s.connect_ex((target, port)) == 0
+        except Exception as e:
+            return False
+
+
 def dns_resolve(options, target_name):
     dns_resolver = dns.resolver.Resolver()
     if options.nameserver is not None:
@@ -491,47 +502,48 @@ def init_smb_session(options, target_ip, domain, username, password, address, lm
 def worker(options, target_name, domain, username, password, address, lmhash, nthash, results, lock):
     target_ip = dns_resolve(options, target_name)
     if target_ip is not None:
-        try:
-            smbClient = init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash)
-            resp = smbClient.listShares()
-            for share in resp:
-                # SHARE_INFO_1 structure (lmshare.h)
-                # https://docs.microsoft.com/en-us/windows/win32/api/lmshare/ns-lmshare-share_info_1
-                sharename = share['shi1_netname'][:-1]
-                sharecomment = share['shi1_remark'][:-1]
-                sharetype = share['shi1_type']
+        if is_port_open(target_ip, 445):
+            try:
+                smbClient = init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash)
+                resp = smbClient.listShares()
+                for share in resp:
+                    # SHARE_INFO_1 structure (lmshare.h)
+                    # https://docs.microsoft.com/en-us/windows/win32/api/lmshare/ns-lmshare-share_info_1
+                    sharename = share['shi1_netname'][:-1]
+                    sharecomment = share['shi1_remark'][:-1]
+                    sharetype = share['shi1_type']
 
-                lock.acquire()
-                if target_name not in results.keys():
-                    results[target_name] = []
-                results[target_name].append(
-                    {
-                        "computer": {
-                            "fqdn": target_name,
-                            "ip": target_ip
-                        },
-                        "share": {
-                            "name": sharename,
-                            "comment": sharecomment,
-                            "hidden": (True if sharename.endswith('$') else False),
-                            "uncpath": "\\".join(['', '', target_ip, sharename, '']),
-                            "type": {
-                                "stype_value": sharetype,
-                                "stype_flags": STYPE_MASK(sharetype)
+                    lock.acquire()
+                    if target_name not in results.keys():
+                        results[target_name] = []
+                    results[target_name].append(
+                        {
+                            "computer": {
+                                "fqdn": target_name,
+                                "ip": target_ip
+                            },
+                            "share": {
+                                "name": sharename,
+                                "comment": sharecomment,
+                                "hidden": (True if sharename.endswith('$') else False),
+                                "uncpath": "\\".join(['', '', target_ip, sharename, '']),
+                                "type": {
+                                    "stype_value": sharetype,
+                                    "stype_flags": STYPE_MASK(sharetype)
+                                }
                             }
                         }
-                    }
-                )
+                    )
 
-                print_results(options, sharename, address, sharecomment)
+                    print_results(options, sharename, address, sharecomment)
 
-                lock.release()
+                    lock.release()
 
-        except Exception as err:
-            if options.debug:
-                lock.acquire()
-                print(err)
-                lock.release()
+            except Exception as err:
+                if options.debug:
+                    lock.acquire()
+                    print(err)
+                    lock.release()
 
     # DNS Resolution failed
     else:
