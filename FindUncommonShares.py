@@ -274,6 +274,53 @@ def export_sqlite(options, results):
     print("done.")
 
 
+def dns_resolve(options, target_name):
+    dns_resolver = dns.resolver.Resolver()
+    if options.nameserver is not None:
+        dns_resolver.nameservers = [options.nameserver]
+    else:
+        dns_resolver.nameservers = [options.dc_ip]
+    dns_answer = None
+
+    # Try UDP
+    try:
+        dns_answer = dns_resolver.resolve(target_name, rdtype="A", tcp=False)
+    except dns.resolver.NXDOMAIN:
+        # the domain does not exist so dns resolutions remain empty
+        pass
+    except dns.resolver.NoAnswer as e:
+        # domains existing but not having AAAA records is common
+        pass
+    except dns.resolver.NoNameservers as e:
+        pass
+    except dns.exception.DNSException as e:
+        pass
+
+    if dns_answer is None:
+        # Try TCP
+        try:
+            dns_answer = dns_resolver.resolve(target_name, rdtype="A", tcp=True)
+        except dns.resolver.NXDOMAIN:
+            # the domain does not exist so dns resolutions remain empty
+            pass
+        except dns.resolver.NoAnswer as e:
+            # domains existing but not having AAAA records is common
+            pass
+        except dns.resolver.NoNameservers as e:
+            pass
+        except dns.exception.DNSException as e:
+            pass
+
+    target_ip = []
+    if dns_answer is not None:
+        target_ip = [ip.address for ip in dns_answer]
+
+    if len(target_ip) != 0:
+        return target_ip[0]
+    else:
+        return None
+
+
 def parse_args():
     print("FindUncommonShares v%s - by @podalirius_\n" % VERSION)
 
@@ -287,6 +334,7 @@ def parse_args():
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
     parser.add_argument("-l", "--ldap-query", dest="ldap_query", type=str, default="(objectCategory=computer)", required=False, help="LDAP query to use to extract computers from the domain.")
+    parser.add_argument("-ns", "--nameserver", dest="nameserver", default=None, required=False, help="IP of the DNS server to use, instead of the --dc-ip.")
 
     # Shares
     parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
@@ -441,44 +489,8 @@ def init_smb_session(options, target_ip, domain, username, password, address, lm
 
 
 def worker(options, target_name, domain, username, password, address, lmhash, nthash, results, lock):
-    dns_resolver = dns.resolver.Resolver()
-    dns_resolver.nameservers = [options.dc_ip]
-    dns_answer = None
-    # Try UDP
-    try:
-        dns_answer = dns_resolver.resolve(target_name, rdtype="A", tcp=False)
-    except dns.resolver.NXDOMAIN:
-        # the domain does not exist so dns resolutions remain empty
-        pass
-    except dns.resolver.NoAnswer as e:
-        # domains existing but not having AAAA records is common
-        pass
-    except dns.resolver.NoNameservers as e:
-        pass
-    except dns.exception.DNSException as e:
-        pass
-
-    if dns_answer is None:
-        # Try TCP
-        try:
-            dns_answer = dns_resolver.resolve(target_name, rdtype="A", tcp=True)
-        except dns.resolver.NXDOMAIN:
-            # the domain does not exist so dns resolutions remain empty
-            pass
-        except dns.resolver.NoAnswer as e:
-            # domains existing but not having AAAA records is common
-            pass
-        except dns.resolver.NoNameservers as e:
-            pass
-        except dns.exception.DNSException as e:
-            pass
-
-    target_ip = []
-    if dns_answer is not None:
-        target_ip = [ip.address for ip in dns_answer]
-
-    if len(target_ip) != 0:
-        target_ip = target_ip[0]
+    target_ip = dns_resolve(options, target_name)
+    if target_ip is not None:
         try:
             smbClient = init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash)
             resp = smbClient.listShares()
@@ -510,13 +522,23 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
                         }
                     }
                 )
-                lock.release()
 
                 print_results(options, sharename, address, sharecomment)
 
-        except Exception as e:
+                lock.release()
+
+        except Exception as err:
             if options.debug:
-                print(e)
+                lock.acquire()
+                print(err)
+                lock.release()
+
+    # DNS Resolution failed
+    else:
+        if options.debug:
+            lock.acquire()
+            print("[!] Could not resolve")
+            lock.release()
 
 
 if __name__ == '__main__':
@@ -560,7 +582,19 @@ if __name__ == '__main__':
     with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
         for ck in computers.keys():
             computer = computers[ck]
-            tp.submit(worker, options, computer['dNSHostName'], options.auth_domain, options.auth_username, options.auth_password, computer['dNSHostName'], auth_lm_hash, auth_nt_hash, results, lock)
+            tp.submit(
+                worker,
+                options,
+                computer['dNSHostName'],
+                options.auth_domain,
+                options.auth_username,
+                options.auth_password,
+                computer['dNSHostName'],
+                auth_lm_hash,
+                auth_nt_hash,
+                results,
+                lock
+            )
 
     if options.export_json is not None:
         export_json(options, results)
