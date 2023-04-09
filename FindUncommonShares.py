@@ -286,6 +286,8 @@ def parse_args():
     parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode. (default: False)")
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
+    parser.add_argument("-l", "--ldap-query", dest="ldap_query", type=str, default="(objectCategory=computer)", required=False, help="LDAP query to use to extract computers from the domain.")
+
     # Shares
     parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
     parser.add_argument("-i", "--ignore-share", default=[], dest="ignored_shares", action="append", required=False, help="Specify shares to ignore explicitly. (e.g., --ignore-share 'C$' --ignore-share 'Backup')")
@@ -542,7 +544,7 @@ if __name__ == '__main__':
         auth_username=options.auth_username,
         auth_password=options.auth_password,
         auth_hashes=options.auth_hashes,
-        query='(objectCategory=computer)',
+        query=options.ldap_query,
         attributes=["dNSHostName", "sAMAccountName"]
     )
 
