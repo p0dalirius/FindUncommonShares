@@ -31,7 +31,7 @@ import traceback
 import xlsxwriter
 
 
-VERSION = "2.5"
+VERSION = "2.6"
 
 
 COMMON_SHARES = [

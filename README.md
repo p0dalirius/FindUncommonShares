@@ -25,23 +25,32 @@
 
 ```              
 $ ./FindUncommonShares.py -h
-FindUncommonShares v2.5 - by @podalirius_
+FindUncommonShares v2.6 - by @podalirius_
 
-usage: FindUncommonShares.py [-h] [--use-ldaps] [-q] [--debug] [-no-colors] [-I] [-t THREADS] [--export-xlsx EXPORT_XLSX] [--export-json EXPORT_JSON] [--export-sqlite EXPORT_SQLITE] --dc-ip ip address [-d DOMAIN] [-u USER]
-                             [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
+usage: FindUncommonShares.py [-h] [-v] [--use-ldaps] [-q] [--debug] [-no-colors] [-t THREADS] [-l LDAP_QUERY] [-ns NAMESERVER] [-I] [-i IGNORED_SHARES] [-s ACCEPTED_SHARES] [--export-xlsx EXPORT_XLSX] [--export-json EXPORT_JSON]
+                             [--export-sqlite EXPORT_SQLITE] --dc-ip ip address [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
 
 Find uncommon SMB shares on remote machines.
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
+  -v, --verbose         Verbose mode. (default: False)
   --use-ldaps           Use LDAPS instead of LDAP
   -q, --quiet           Show no information at all.
-  --debug               Debug mode.
+  --debug               Debug mode. (default: False)
   -no-colors            Disables colored output mode
-  -I, --ignore-hidden-shares
-                        Ignores hidden shares (shares ending with $)
   -t THREADS, --threads THREADS
                         Number of threads (default: 20)
+  -l LDAP_QUERY, --ldap-query LDAP_QUERY
+                        LDAP query to use to extract computers from the domain.
+  -ns NAMESERVER, --nameserver NAMESERVER
+                        IP of the DNS server to use, instead of the --dc-ip.
+  -I, --ignore-hidden-shares
+                        Ignores hidden shares (shares ending with $)
+  -i IGNORED_SHARES, --ignore-share IGNORED_SHARES
+                        Specify shares to ignore explicitly. (e.g., --ignore-share 'C$' --ignore-share 'Backup')
+  -s ACCEPTED_SHARES, --show-share ACCEPTED_SHARES
+                        Specify shares to show explicitly. (e.g., --show-share 'C$' --show-share 'Backup')
 
 Output files:
   --export-xlsx EXPORT_XLSX
