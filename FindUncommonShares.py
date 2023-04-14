@@ -337,13 +337,14 @@ def parse_args():
 
     parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
 
-    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose mode. (default: False)')
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode. (default: False).")
 
-    parser.add_argument('--use-ldaps', action='store_true', help='Use LDAPS instead of LDAP')
+    parser.add_argument("--use-ldaps", default=False, action="store_true", help="Use LDAPS instead of LDAP.")
+    parser.add_argument("--check-user-access", default=False, action="store_true", help="Check if current user can access the share.")
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="Show no information at all.")
-    parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode. (default: False)")
-    parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode")
-    parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20)")
+    parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode. (default: False).")
+    parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode.")
+    parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20).")
     parser.add_argument("-l", "--ldap-query", dest="ldap_query", type=str, default="(objectCategory=computer)", required=False, help="LDAP query to use to extract computers from the domain.")
     parser.add_argument("-ns", "--nameserver", dest="nameserver", default=None, required=False, help="IP of the DNS server to use, instead of the --dc-ip.")
 
@@ -383,35 +384,46 @@ def parse_args():
     return options
 
 
-def print_results(options, sharename, address, sharecomment):
+def print_results(options, sharename, address, sharecomment, access_rights):
     # Share is not a common share
+
+    str_access, str_colored_access = "", ""
+
+    if options.check_user_access:
+        if access_rights["listable"] == True:
+            str_access = "(access granted)"
+            str_colored_access = "(\x1b[1;92maccess granted\x1b[0m)"
+        else:
+            str_access = "(access denied)"
+            str_colored_access = "(\x1b[1;91maccess denied\x1b[0m)"
+
     if ((sharename not in COMMON_SHARES) or (sharename in options.accepted_shares)) and (sharename not in options.ignored_shares):
         if not options.quiet:
             if len(sharecomment) != 0:
                 if options.colors:
                     # Hidden share
                     if sharename.endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
                     # Not hidden share
                     else:
-                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
                 else:
-                    print("[>] Found '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
+                    print("[>] Found '%s' on '%s' (comment: '%s') %s" % (sharename, address, sharecomment, str_access))
             else:
                 if options.colors:
                     # Hidden share
                     if sharename.endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
                     # Not hidden share
                     else:
-                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
                 else:
                     # Hidden share
                     if sharename.endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '%s' on '%s'" % (sharename, address))
+                        print("[>] Found '%s' on '%s' %s" % (sharename, address, str_access))
                     # Not hidden share
                     else:
-                        print("[>] Found '%s' on '%s'" % (sharename, address))
+                        print("[>] Found '%s' on '%s' %s" % (sharename, address, str_access))
         else:
             # Quiet mode, do not print anything
             pass
@@ -425,14 +437,14 @@ def print_results(options, sharename, address, sharecomment):
             if options.colors:
                 # Hidden share
                 if sharename.endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
                 # Not hidden share
                 else:
-                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m')" % (sharename, address, sharecomment))
+                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
 
             # Not colored output
             else:
-                print("[>] Skipping common share '%s' on '%s' (comment: '%s')" % (sharename, address, sharecomment))
+                print("[>] Skipping common share '%s' on '%s' (comment: '%s') %s" % (sharename, address, sharecomment, str_access))
 
         # Share has no comment
         else:
@@ -440,20 +452,20 @@ def print_results(options, sharename, address, sharecomment):
             if options.colors:
                 # Hidden share
                 if sharename.endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
                 # Not hidden share
                 else:
-                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m'" % (sharename, address))
+                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
 
             # Not colored output
             else:
                 # Hidden share
                 if sharename.endswith('$'):
                     if not options.ignore_hidden_shares:
-                        print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
+                        print("[>] Skipping common share '%s' on '%s' %s" % (sharename, address, str_access))
                 # Not hidden share
                 else:
-                    print("[>] Skipping common share '%s' on '%s'" % (sharename, address))
+                    print("[>] Skipping common share '%s' on '%s' %s" % (sharename, address, str_access))
 
 
 def get_machine_name(options, domain):
@@ -469,6 +481,17 @@ def get_machine_name(options, domain):
     else:
         s.logoff()
     return s.getServerName()
+
+
+def get_access_rights(smbclient, sharename):
+    access_rights = {}
+    try:
+        smbclient.listPath(sharename, '*', password=None)
+        access_rights["listable"] = True
+    except Exception as e:
+        access_rights["listable"] = False
+
+    return access_rights
 
 
 def init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash, port=445, debug=False):
@@ -513,6 +536,10 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
                     sharecomment = share['shi1_remark'][:-1]
                     sharetype = share['shi1_type']
 
+                    access_rights = {}
+                    if options.check_user_access:
+                        access_rights = get_access_rights(smbClient, sharename)
+
                     lock.acquire()
                     if target_name not in results.keys():
                         results[target_name] = []
@@ -530,12 +557,13 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
                                 "type": {
                                     "stype_value": sharetype,
                                     "stype_flags": STYPE_MASK(sharetype)
-                                }
+                                },
+                                "access_rights": access_rights
                             }
                         }
                     )
 
-                    print_results(options, sharename, address, sharecomment)
+                    print_results(options, sharename, address, sharecomment, access_rights)
 
                     lock.release()
 
