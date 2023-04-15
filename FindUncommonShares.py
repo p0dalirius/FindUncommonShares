@@ -19,7 +19,9 @@ import dns.exception
 import json
 import ldap3
 import logging
+import ntpath
 import os
+import random
 import re
 import sqlite3
 import socket
@@ -30,9 +32,7 @@ import time
 import traceback
 import xlsxwriter
 
-
 VERSION = "2.6"
-
 
 COMMON_SHARES = [
     "C$",
@@ -387,15 +387,33 @@ def parse_args():
 def print_results(options, sharename, address, sharecomment, access_rights):
     # Share is not a common share
 
-    str_access, str_colored_access = "", ""
+    str_access_readable, str_colored_access_readable = "", ""
+    str_access_writable, str_colored_access_writable = "", ""
 
     if options.check_user_access:
-        if access_rights["listable"] == True:
-            str_access = "(access granted)"
-            str_colored_access = "(\x1b[1;92maccess granted\x1b[0m)"
-        else:
-            str_access = "(access denied)"
-            str_colored_access = "(\x1b[1;91maccess denied\x1b[0m)"
+        if access_rights["readable"] == True:
+            str_access_readable = "READ"
+            str_colored_access_readable = "\x1b[1;92mREAD\x1b[0m"
+
+        if access_rights["writable"] == True:
+            str_access_writable = "WRITE"
+            str_colored_access_writable = "\x1b[1;92mWRITE\x1b[0m"
+
+        if access_rights["readable"] == False and access_rights["writable"] == False:
+            str_access = "access: DENIED"
+            str_colored_access = "access: \x1b[1;91mDENIED\x1b[0m"
+        elif access_rights["readable"] == True and access_rights["writable"] == True:
+            str_access = "access: %s, %s" % (str_access_readable, str_access_writable)
+            str_colored_access = "access: %s, %s" % (str_colored_access_readable, str_colored_access_writable)
+        elif access_rights["readable"] == False and access_rights["writable"] == True:
+            str_access = "access: %s" % str_access_writable
+            str_colored_access = "access: %s" % str_colored_access_writable
+        elif access_rights["readable"] == True and access_rights["writable"] == False:
+            str_access = "access: %s" % str_access_readable
+            str_colored_access = "access: %s" % str_colored_access_readable
+
+    else:
+        str_access, str_colored_access = "", ""
 
     if ((sharename not in COMMON_SHARES) or (sharename in options.accepted_shares)) and (sharename not in options.ignored_shares):
         if not options.quiet:
@@ -484,12 +502,20 @@ def get_machine_name(options, domain):
 
 
 def get_access_rights(smbclient, sharename):
-    access_rights = {}
+    access_rights = {"readable": False, "writable": False}
     try:
         smbclient.listPath(sharename, '*', password=None)
-        access_rights["listable"] = True
-    except Exception as e:
-        access_rights["listable"] = False
+        access_rights["readable"] = True
+    except SessionError as e:
+        access_rights["readable"] = False
+
+    try:
+        temp_dir = ntpath.normpath("\\" + ''.join([random.choice("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPRSTUVWXYZ0123456759") for k in range(16)]))
+        smbclient.createDirectory(sharename, temp_dir)
+        smbclient.deleteDirectory(sharename, temp_dir)
+        access_rights["writable"] = True
+    except SessionError as e:
+        access_rights["writable"] = False
 
     return access_rights
 
@@ -646,4 +672,3 @@ if __name__ == '__main__':
         export_sqlite(options, results)
 
     print("[+] Bye Bye!")
-
