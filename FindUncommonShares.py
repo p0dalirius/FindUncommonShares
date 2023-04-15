@@ -642,33 +642,35 @@ if __name__ == '__main__':
 
     results = {}
 
-    # Setup thread lock to properly write in the file
-    lock = threading.Lock()
-    # Waits for all the threads to be completed
-    with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
-        for ck in computers.keys():
-            computer = computers[ck]
-            tp.submit(
-                worker,
-                options,
-                computer['dNSHostName'],
-                options.auth_domain,
-                options.auth_username,
-                options.auth_password,
-                computer['dNSHostName'],
-                auth_lm_hash,
-                auth_nt_hash,
-                results,
-                lock
-            )
+    if len(computers.keys()) != 0:
+        # Setup thread lock to properly write in the file
+        lock = threading.Lock()
+        # Waits for all the threads to be completed
+        with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
+            for ck in computers.keys():
+                computer = computers[ck]
+                tp.submit(
+                    worker,
+                    options,
+                    computer['dNSHostName'],
+                    options.auth_domain,
+                    options.auth_username,
+                    options.auth_password,
+                    computer['dNSHostName'],
+                    auth_lm_hash,
+                    auth_nt_hash,
+                    results,
+                    lock
+                )
 
-    if options.export_json is not None:
-        export_json(options, results)
+        if options.export_json is not None:
+            export_json(options, results)
 
-    if options.export_xlsx is not None:
-        export_xlsx(options, results)
+        if options.export_xlsx is not None:
+            export_xlsx(options, results)
 
-    if options.export_sqlite is not None:
-        export_sqlite(options, results)
-
+        if options.export_sqlite is not None:
+            export_sqlite(options, results)
+    else:
+        print("[!] No computers in the domain found matching filter '%s'" % options.ldap_query)
     print("[+] Bye Bye!")
