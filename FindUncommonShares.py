@@ -340,7 +340,6 @@ def parse_args():
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode. (default: False).")
 
     parser.add_argument("--use-ldaps", default=False, action="store_true", help="Use LDAPS instead of LDAP.")
-    parser.add_argument("--check-user-access", default=False, action="store_true", help="Check if current user can access the share.")
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="Show no information at all.")
     parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode. (default: False).")
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode.")
@@ -349,6 +348,9 @@ def parse_args():
     parser.add_argument("-ns", "--nameserver", dest="nameserver", default=None, required=False, help="IP of the DNS server to use, instead of the --dc-ip.")
 
     # Shares
+    parser.add_argument("--check-user-access", default=False, action="store_true", help="Check if current user can access the share.")
+    parser.add_argument("--readable", default=False, action="store_true", help="Only list shares that current user has READ access to.")
+    parser.add_argument("--writable", default=False, action="store_true", help="Only list shares that current user has WRITE access to.")
     parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
     parser.add_argument("-i", "--ignore-share", default=[], dest="ignored_shares", action="append", required=False, help="Specify shares to ignore explicitly. (e.g., --ignore-share 'C$' --ignore-share 'Backup')")
     parser.add_argument("-s", "--show-share", default=[], dest="accepted_shares", action="append", required=False, help="Specify shares to show explicitly. (e.g., --show-share 'C$' --show-share 'Backup')")
@@ -381,6 +383,9 @@ def parse_args():
         from getpass import getpass
         options.auth_password = getpass("Password:")
 
+    if options.readable == True or options.writable == True:
+        options.check_user_access = True
+
     return options
 
 
@@ -389,16 +394,13 @@ def print_results(options, sharename, address, sharecomment, access_rights):
 
     str_access_readable, str_colored_access_readable = "", ""
     str_access_writable, str_colored_access_writable = "", ""
-
     if options.check_user_access:
         if access_rights["readable"] == True:
             str_access_readable = "READ"
             str_colored_access_readable = "\x1b[1;92mREAD\x1b[0m"
-
         if access_rights["writable"] == True:
             str_access_writable = "WRITE"
             str_colored_access_writable = "\x1b[1;92mWRITE\x1b[0m"
-
         if access_rights["readable"] == False and access_rights["writable"] == False:
             str_access = "access: DENIED"
             str_colored_access = "access: \x1b[1;91mDENIED\x1b[0m"
@@ -411,9 +413,29 @@ def print_results(options, sharename, address, sharecomment, access_rights):
         elif access_rights["readable"] == True and access_rights["writable"] == False:
             str_access = "access: %s" % str_access_readable
             str_colored_access = "access: %s" % str_colored_access_readable
-
     else:
         str_access, str_colored_access = "", ""
+
+    # Specific use cases
+    do_print_results = False
+    # Print all results
+    if options.readable == False and options.writable == False:
+        do_print_results = True
+    # print results for readable shares
+    if options.readable == True:
+        if access_rights["readable"] == True:
+            do_print_results = True
+        else:
+            do_print_results = False
+    # print results for writable shares
+    if options.writable == True:
+        if access_rights["writable"] == True:
+            do_print_results = True
+        else:
+            do_print_results = False
+
+    if not do_print_results:
+        return
 
     if ((sharename not in COMMON_SHARES) or (sharename in options.accepted_shares)) and (sharename not in options.ignored_shares):
         if not options.quiet:
