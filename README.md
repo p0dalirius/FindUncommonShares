@@ -21,30 +21,52 @@
  - [x] Export results in SQLITE3 with IP, name, comment, flags and UNC path with `--export-sqlite <file.db>`.
  - [x] Iterate on LDAP result pages to get every computer of the domain, no matter the size.
 
+## Quick win commands
+
+ + List all shares where your current user has WRITE access:
+    ```
+    ./FindUncommonShares.py -u user -p 'Podalirius123!' -d DOMAIN --dc-ip 192.168.1.71 --writable
+    ```
+ 
+ + Export list of shares in the domain to an Excel file for the client:
+   ```
+   ./FindUncommonShares.py -u user -p 'Podalirius123!' -d DOMAIN --dc-ip 192.168.1.71 --export-xlsx ./examples/results.xlsx
+   ```
+
+ + List all shares with access rights for your current user:
+    ```
+    ./FindUncommonShares.py -u user -p 'Podalirius123!' -d DOMAIN --dc-ip 192.168.1.71 --check-user-access
+    ```
+   
 ## Usage
 
 ```              
 $ ./FindUncommonShares.py -h
-FindUncommonShares v2.6 - by @podalirius_
+FindUncommonShares v3.0 - by @podalirius_
 
-usage: FindUncommonShares.py [-h] [-v] [--use-ldaps] [-q] [--debug] [-no-colors] [-t THREADS] [-l LDAP_QUERY] [-ns NAMESERVER] [-I] [-i IGNORED_SHARES] [-s ACCEPTED_SHARES] [--export-xlsx EXPORT_XLSX] [--export-json EXPORT_JSON]
-                             [--export-sqlite EXPORT_SQLITE] --dc-ip ip address [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
+usage: FindUncommonShares.py [-h] [-v] [--use-ldaps] [-q] [--debug] [-no-colors] [-t THREADS] [-l LDAP_QUERY] [-ns NAMESERVER]
+                             [--check-user-access] [--readable] [--writable] [-I] [-i IGNORED_SHARES] [-s ACCEPTED_SHARES]
+                             [--export-xlsx EXPORT_XLSX] [--export-json EXPORT_JSON] [--export-sqlite EXPORT_SQLITE] --dc-ip ip
+                             address [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
 
 Find uncommon SMB shares on remote machines.
 
 options:
   -h, --help            show this help message and exit
-  -v, --verbose         Verbose mode. (default: False)
-  --use-ldaps           Use LDAPS instead of LDAP
+  -v, --verbose         Verbose mode. (default: False).
+  --use-ldaps           Use LDAPS instead of LDAP.
   -q, --quiet           Show no information at all.
-  --debug               Debug mode. (default: False)
-  -no-colors            Disables colored output mode
+  --debug               Debug mode. (default: False).
+  -no-colors            Disables colored output mode.
   -t THREADS, --threads THREADS
-                        Number of threads (default: 20)
+                        Number of threads (default: 20).
   -l LDAP_QUERY, --ldap-query LDAP_QUERY
                         LDAP query to use to extract computers from the domain.
   -ns NAMESERVER, --nameserver NAMESERVER
                         IP of the DNS server to use, instead of the --dc-ip.
+  --check-user-access   Check if current user can access the share.
+  --readable            Only list shares that current user has READ access to.
+  --writable            Only list shares that current user has WRITE access to.
   -I, --ignore-hidden-shares
                         Ignores hidden shares (shares ending with $)
   -i IGNORED_SHARES, --ignore-share IGNORED_SHARES
@@ -61,7 +83,8 @@ Output files:
                         Output SQLITE3 file to store the results in.
 
 Authentication & connection:
-  --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter
+  --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the
+                        domain part (FQDN) specified in the identity parameter
   -d DOMAIN, --domain DOMAIN
                         (FQDN) domain to authenticate to
   -u USER, --user USER  user to authenticate with
@@ -73,46 +96,35 @@ Credentials:
   -H [LMHASH:]NTHASH, --hashes [LMHASH:]NTHASH
                         NT/LM hashes, format is LMhash:NThash
   --aes-key hex key     AES key to use for Kerberos Authentication (128 or 256 bits)
-  -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line
+  -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If
+                        valid credentials cannot be found, it will use the ones specified in the command line
 ```
 
-## Examples :
-
-```
-$ ./FindUncommonShares.py -u 'user1' -d 'LAB.local' -p 'P@ssw0rd!' --dc-ip 192.168.2.1
-FindUncommonShares v2.5 - by @podalirius_
-
-[>] Extracting all computers ...
-[+] Found 2 computers.
-
-[>] Enumerating shares ...
-[>] Found 'Users' on 'DC01.LAB.local'
-[>] Found 'WeirdShare' on 'DC01.LAB.local' (comment: 'Test comment')
-[>] Found 'AnotherShare' on 'PC01.LAB.local'
-[>] Found 'Users' on 'PC01.LAB.local
-$
-```
-
+## Exported results
 
 Each JSON entry looks like this:
 
 ```json
 {
     "computer": {
-        "fqdn": "DC01.LAB.local",
-        "ip": "192.168.1.1"
+        "fqdn": "TDC01.DOMAIN.local",
+        "ip": "192.168.1.71"
     },
     "share": {
-        "name": "ADMIN$",
-        "comment": "Remote Admin",
+        "name": "IPC$",
+        "comment": "Remote IPC",
         "hidden": true,
-        "uncpath": "\\\\192.168.1.46\\ADMIN$\\",
+        "uncpath": "\\\\192.168.1.71\\IPC$\\",
         "type": {
-            "stype_value": 2147483648,
+            "stype_value": 2147483651,
             "stype_flags": [
-                "STYPE_DISKTREE",
+                "STYPE_IPC",
                 "STYPE_TEMPORARY"
             ]
+        },
+        "access_rights": {
+            "readable": true,
+            "writable": false
         }
     }
 }

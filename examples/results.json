@@ -1,72 +1,84 @@
 {
-    "DC2016.COERCE.local": [
+    "TDC01.DOMAIN.local": [
         {
             "computer": {
-                "fqdn": "DC2016.COERCE.local",
-                "ip": "192.168.1.46"
+                "fqdn": "TDC01.DOMAIN.local",
+                "ip": "192.168.1.71"
             },
             "share": {
                 "name": "ADMIN$",
                 "comment": "Remote Admin",
                 "hidden": true,
-                "uncpath": "\\\\192.168.1.46\\ADMIN$\\",
+                "uncpath": "\\\\192.168.1.71\\ADMIN$\\",
                 "type": {
                     "stype_value": 2147483648,
                     "stype_flags": [
                         "STYPE_DISKTREE",
                         "STYPE_TEMPORARY"
                     ]
+                },
+                "access_rights": {
+                    "readable": false,
+                    "writable": false
                 }
             }
         },
         {
             "computer": {
-                "fqdn": "DC2016.COERCE.local",
-                "ip": "192.168.1.46"
+                "fqdn": "TDC01.DOMAIN.local",
+                "ip": "192.168.1.71"
             },
             "share": {
                 "name": "C$",
                 "comment": "Default share",
                 "hidden": true,
-                "uncpath": "\\\\192.168.1.46\\C$\\",
+                "uncpath": "\\\\192.168.1.71\\C$\\",
                 "type": {
                     "stype_value": 2147483648,
                     "stype_flags": [
                         "STYPE_DISKTREE",
                         "STYPE_TEMPORARY"
                     ]
+                },
+                "access_rights": {
+                    "readable": false,
+                    "writable": false
                 }
             }
         },
         {
             "computer": {
-                "fqdn": "DC2016.COERCE.local",
-                "ip": "192.168.1.46"
+                "fqdn": "TDC01.DOMAIN.local",
+                "ip": "192.168.1.71"
             },
             "share": {
                 "name": "IPC$",
                 "comment": "Remote IPC",
                 "hidden": true,
-                "uncpath": "\\\\192.168.1.46\\IPC$\\",
+                "uncpath": "\\\\192.168.1.71\\IPC$\\",
                 "type": {
                     "stype_value": 2147483651,
                     "stype_flags": [
                         "STYPE_IPC",
                         "STYPE_TEMPORARY"
                     ]
+                },
+                "access_rights": {
+                    "readable": true,
+                    "writable": false
                 }
             }
         },
         {
             "computer": {
-                "fqdn": "DC2016.COERCE.local",
-                "ip": "192.168.1.46"
+                "fqdn": "TDC01.DOMAIN.local",
+                "ip": "192.168.1.71"
             },
             "share": {
                 "name": "NETLOGON",
                 "comment": "Logon server share ",
                 "hidden": false,
-                "uncpath": "\\\\192.168.1.46\\NETLOGON\\",
+                "uncpath": "\\\\192.168.1.71\\NETLOGON\\",
                 "type": {
                     "stype_value": 0,
                     "stype_flags": [
@@ -74,19 +86,23 @@
                         "STYPE_SPECIAL",
                         "STYPE_TEMPORARY"
                     ]
+                },
+                "access_rights": {
+                    "readable": true,
+                    "writable": false
                 }
             }
         },
         {
             "computer": {
-                "fqdn": "DC2016.COERCE.local",
-                "ip": "192.168.1.46"
+                "fqdn": "TDC01.DOMAIN.local",
+                "ip": "192.168.1.71"
             },
             "share": {
                 "name": "SYSVOL",
                 "comment": "Logon server share ",
                 "hidden": false,
-                "uncpath": "\\\\192.168.1.46\\SYSVOL\\",
+                "uncpath": "\\\\192.168.1.71\\SYSVOL\\",
                 "type": {
                     "stype_value": 0,
                     "stype_flags": [
@@ -94,6 +110,34 @@
                         "STYPE_SPECIAL",
                         "STYPE_TEMPORARY"
                     ]
+                },
+                "access_rights": {
+                    "readable": true,
+                    "writable": false
+                }
+            }
+        },
+        {
+            "computer": {
+                "fqdn": "TDC01.DOMAIN.local",
+                "ip": "192.168.1.71"
+            },
+            "share": {
+                "name": "Users",
+                "comment": "",
+                "hidden": false,
+                "uncpath": "\\\\192.168.1.71\\Users\\",
+                "type": {
+                    "stype_value": 0,
+                    "stype_flags": [
+                        "STYPE_DISKTREE",
+                        "STYPE_SPECIAL",
+                        "STYPE_TEMPORARY"
+                    ]
+                },
+                "access_rights": {
+                    "readable": true,
+                    "writable": false
                 }
             }
         }

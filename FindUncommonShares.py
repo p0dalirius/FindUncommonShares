@@ -32,7 +32,7 @@ import time
 import traceback
 import xlsxwriter
 
-VERSION = "2.6"
+VERSION = "3.0"
 
 COMMON_SHARES = [
     "C$",
@@ -246,7 +246,7 @@ def export_xlsx(options, results):
 
 
 def export_sqlite(options, results):
-    print("[>] Exporting results to %s ..." % options.export_sqlite, end="")
+    print("[>] Exporting results to %s ... " % options.export_sqlite, end="")
     sys.stdout.flush()
     basepath = os.path.dirname(options.export_sqlite)
     filename = os.path.basename(options.export_sqlite)
@@ -259,17 +259,18 @@ def export_sqlite(options, results):
 
     conn = sqlite3.connect(path_to_file)
     cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS shares(fqdn VARCHAR(255), ip VARCHAR(255), shi1_netname VARCHAR(255), shi1_remark VARCHAR(255), shi1_type INTEGER);")
+    cursor.execute("CREATE TABLE IF NOT EXISTS shares(fqdn VARCHAR(255), ip VARCHAR(255), shi1_netname VARCHAR(255), shi1_remark VARCHAR(255), shi1_type INTEGER, hidden INTEGER);")
     for computername in results.keys():
         for share in results[computername]:
-            cursor.execute("INSERT INTO shares VALUES (?, ?, ?, ?, ?)", (
-                share["computer"]["fqdn"],
-                share["computer"]["ip"],
-                share["share"]["name"],
-                share["share"]["comment"],
-                share["share"]["type"]["stype_value"]
+            cursor.execute("INSERT INTO shares VALUES (?, ?, ?, ?, ?, ?)", (
+                    share["computer"]["fqdn"],
+                    share["computer"]["ip"],
+                    share["share"]["name"],
+                    share["share"]["comment"],
+                    share["share"]["type"]["stype_value"],
+                    share["share"]["hidden"]
+                )
             )
-                           )
     conn.commit()
     conn.close()
     print("done.")
@@ -394,6 +395,7 @@ def print_results(options, sharename, address, sharecomment, access_rights):
 
     str_access_readable, str_colored_access_readable = "", ""
     str_access_writable, str_colored_access_writable = "", ""
+    str_access, str_colored_access = "", ""
     if options.check_user_access:
         if access_rights["readable"] == True:
             str_access_readable = "READ"
@@ -413,8 +415,6 @@ def print_results(options, sharename, address, sharecomment, access_rights):
         elif access_rights["readable"] == True and access_rights["writable"] == False:
             str_access = "access: %s" % str_access_readable
             str_colored_access = "access: %s" % str_colored_access_readable
-    else:
-        str_access, str_colored_access = "", ""
 
     # Specific use cases
     do_print_results = False
