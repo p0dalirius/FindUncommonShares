@@ -21,6 +21,10 @@
  - [x] Export results in SQLITE3 with IP, name, comment, flags and UNC path with `--export-sqlite <file.db>`.
  - [x] Iterate on LDAP result pages to get every computer of the domain, no matter the size.
 
+## Demonstration
+
+![](./.github/example.png)
+
 ## Quick win commands
 
  + List all shares where your current user has WRITE access:
@@ -129,10 +133,6 @@ Each JSON entry looks like this:
     }
 }
 ```
-
-## Demonstration
-
-![](./.github/example.png)
 
 ## Credits
 
