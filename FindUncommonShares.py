@@ -369,7 +369,7 @@ def parse_args():
     secret = parser.add_argument_group("Credentials")
     cred = secret.add_mutually_exclusive_group()
     cred.add_argument("--no-pass", default=False, action="store_true", help="Don't ask for password (useful for -k)")
-    cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", default="", help="Password to authenticate with")
+    cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", default=None, help="Password to authenticate with")
     cred.add_argument("-H", "--hashes", dest="auth_hashes", action="store", metavar="[LMHASH:]NTHASH", help='NT/LM hashes, format is LMhash:NThash')
     cred.add_argument("--aes-key", dest="auth_key", action="store", metavar="hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
     secret.add_argument("-k", "--kerberos", dest="use_kerberos", action="store_true", help='Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line')
