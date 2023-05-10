@@ -631,8 +631,9 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
 
 if __name__ == '__main__':
     options = parse_args()
-    if ":" not in options.auth_hashes:
-        options.auth_hashes = ":" + options.auth_hashes
+    if options.auth_hashes is not None:
+        if ":" not in options.auth_hashes:
+            options.auth_hashes = ":" + options.auth_hashes
     auth_lm_hash, auth_nt_hash = parse_lm_nt_hashes(options.auth_hashes)
 
     mdns = MicrosoftDNS(
