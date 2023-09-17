@@ -227,7 +227,7 @@ def export_xlsx(options, results):
     worksheet = workbook.add_worksheet()
 
     header_format = workbook.add_format({'bold': 1})
-    header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden"]
+    header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden", "UNC Path", "Readable", "Writable"]
     for k in range(len(header_fields)):
         worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
     worksheet.set_row(0, 20, header_format)
@@ -237,13 +237,21 @@ def export_xlsx(options, results):
     for computername in results.keys():
         computer = results[computername]
         for share in computer:
-            data = [share["computer"]["fqdn"], share["computer"]["ip"], share["share"]["name"], share["share"]["comment"], share["share"]["hidden"]]
+            data = [
+                share["computer"]["fqdn"],
+                share["computer"]["ip"],
+                share["share"]["name"],
+                share["share"]["comment"],
+                share["share"]["hidden"],
+                share["share"]["uncpath"],
+                share["share"]["access_rights"]["readable"],
+                share["share"]["access_rights"]["writable"]
+            ]
             worksheet.write_row(row_id, 0, data)
             row_id += 1
     worksheet.autofilter(0, 0, row_id, len(header_fields) - 1)
     workbook.close()
     print("done.")
-
 
 def export_sqlite(options, results):
     print("[>] Exporting results to %s ... " % options.export_sqlite, end="")
