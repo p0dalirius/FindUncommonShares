@@ -226,7 +226,7 @@ def export_xlsx(options, results):
     workbook = xlsxwriter.Workbook(path_to_file)
     worksheet = workbook.add_worksheet()
 
-    if share["share"]["access_rights"].keys() != 0:
+    if options.check_user_access:
         # Checking access rights
         header_format = workbook.add_format({'bold': 1})
         header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden", "UNC Path", "Readable", "Writable"]
