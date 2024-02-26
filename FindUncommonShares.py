@@ -50,7 +50,7 @@ class MicrosoftDNS(object):
 
     __wildcard_dns_cache = {}
 
-    def __init__(self, dnsserver, auth_domain, auth_username, auth_password, auth_dc_ip, auth_lm_hash, auth_nt_hash, auth_key, use_kerberos, kdcHost, use_ldaps, verbose=False):
+    def __init__(self, dnsserver, auth_domain, auth_username, auth_password, auth_dc_ip, auth_lm_hash, auth_nt_hash, verbose=False):
         super(MicrosoftDNS, self).__init__()
         self.dnsserver = dnsserver
         self.verbose = verbose
@@ -60,10 +60,6 @@ class MicrosoftDNS(object):
         self.auth_dc_ip = auth_dc_ip
         self.auth_lm_hash = auth_lm_hash
         self.auth_nt_hash = auth_nt_hash
-        self.auth_key = auth_key
-        self.use_kerberos = use_kerberos
-        self.kdcHost = kdcHost
-        self.use_ldaps = use_ldaps
 
     def resolve(self, target_name):
         target_ips = []
@@ -123,10 +119,7 @@ class MicrosoftDNS(object):
             auth_password=self.auth_password,
             auth_lm_hash=self.auth_lm_hash,
             auth_nt_hash=self.auth_nt_hash,
-            auth_key=self.auth_key,
-            use_kerberos=self.use_kerberos,
-            kdcHost=self.kdcHost,
-            use_ldaps=self.use_ldaps
+            use_ldaps=False
         )
 
         target_dn = "CN=MicrosoftDNS,DC=DomainDnsZones," + ldap_server.info.other["rootDomainNamingContext"][0]
@@ -233,31 +226,58 @@ def export_xlsx(options, results):
     workbook = xlsxwriter.Workbook(path_to_file)
     worksheet = workbook.add_worksheet()
 
-    header_format = workbook.add_format({'bold': 1})
-    header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden", "UNC Path", "Readable", "Writable"]
-    for k in range(len(header_fields)):
-        worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
-    worksheet.set_row(0, 20, header_format)
-    worksheet.write_row(0, 0, header_fields)
+    if share["share"]["access_rights"].keys() != 0:
+        # Checking access rights
+        header_format = workbook.add_format({'bold': 1})
+        header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden", "UNC Path", "Readable", "Writable"]
+        for k in range(len(header_fields)):
+            worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
+        worksheet.set_row(0, 20, header_format)
+        worksheet.write_row(0, 0, header_fields)
 
-    row_id = 1
-    for computername in results.keys():
-        computer = results[computername]
-        for share in computer:
-            data = [
-                share["computer"]["fqdn"],
-                share["computer"]["ip"],
-                share["share"]["name"],
-                share["share"]["comment"],
-                share["share"]["hidden"],
-                share["share"]["uncpath"],
-                share["share"]["access_rights"]["readable"],
-                share["share"]["access_rights"]["writable"]
-            ]
-            worksheet.write_row(row_id, 0, data)
-            row_id += 1
-    worksheet.autofilter(0, 0, row_id, len(header_fields) - 1)
-    workbook.close()
+        row_id = 1
+        for computername in results.keys():
+            computer = results[computername]
+            for share in computer:
+                data = [
+                    share["computer"]["fqdn"],
+                    share["computer"]["ip"],
+                    share["share"]["name"],
+                    share["share"]["comment"],
+                    share["share"]["hidden"],
+                    share["share"]["uncpath"],
+                    share["share"]["access_rights"]["readable"],
+                    share["share"]["access_rights"]["writable"]
+                ]
+                worksheet.write_row(row_id, 0, data)
+                row_id += 1
+        worksheet.autofilter(0, 0, row_id, len(header_fields) - 1)
+        workbook.close()
+    else:
+        # Not checking access rights
+        header_format = workbook.add_format({'bold': 1})
+        header_fields = ["Computer FQDN", "Computer IP", "Share name", "Share comment", "Is hidden", "UNC Path"]
+        for k in range(len(header_fields)):
+            worksheet.set_column(k, k + 1, len(header_fields[k]) + 3)
+        worksheet.set_row(0, 20, header_format)
+        worksheet.write_row(0, 0, header_fields)
+
+        row_id = 1
+        for computername in results.keys():
+            computer = results[computername]
+            for share in computer:
+                data = [
+                    share["computer"]["fqdn"],
+                    share["computer"]["ip"],
+                    share["share"]["name"],
+                    share["share"]["comment"],
+                    share["share"]["hidden"],
+                    share["share"]["uncpath"],
+                ]
+                worksheet.write_row(row_id, 0, data)
+                row_id += 1
+        worksheet.autofilter(0, 0, row_id, len(header_fields) - 1)
+        workbook.close()
     print("done.")
 
 def export_sqlite(options, results):
@@ -341,6 +361,7 @@ def dns_resolve(options, target_name):
     target_ip = []
     if dns_answer is not None:
         target_ip = [ip.address for ip in dns_answer]
+
     if len(target_ip) != 0:
         return target_ip[0]
     else:
@@ -377,7 +398,6 @@ def parse_args():
 
     authconn = parser.add_argument_group('Authentication & connection')
     authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
-    authconn.add_argument('--kdcHost', dest="kdcHost", action='store', metavar="FQDN KDC", help='FQDN of KDC for Kerberos.')
     authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", default="", help="(FQDN) domain to authenticate to")
     authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", default="", help="user to authenticate with")
 
@@ -395,16 +415,9 @@ def parse_args():
 
     options = parser.parse_args()
 
-    if options.auth_password is None and options.auth_hashes is None and options.auth_key is None and options.no_pass == False:
+    if options.auth_password is None and options.no_pass == False:
         from getpass import getpass
         options.auth_password = getpass("Password:")
-
-    if options.auth_key is not None:
-        options.use_kerberos = True
-
-    if options.use_kerberos is True and options.kdcHost is None:
-        print("[!] Specify KDC's Hostname of FQDN using the argument --kdcHost")
-        exit()
 
     if options.readable == True or options.writable == True:
         options.check_user_access = True
@@ -564,7 +577,7 @@ def get_access_rights(smbclient, sharename):
     return access_rights
 
 
-def init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash, aeskey, port=445, debug=False):
+def init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash, port=445, debug=False):
     smbClient = SMBConnection(address, target_ip, sess_port=int(port))
     dialect = smbClient.getDialect()
     if dialect == SMB_DIALECT:
@@ -580,7 +593,7 @@ def init_smb_session(options, target_ip, domain, username, password, address, lm
         if debug:
             print("[debug] SMBv3.0 dialect used")
     if options.use_kerberos is True:
-        smbClient.kerberosLogin(username, password, domain, lmhash, nthash, aeskey, options.dc_ip)
+        smbClient.kerberosLogin(username, password, domain, lmhash, nthash, options.aesKey, options.dc_ip)
     else:
         smbClient.login(username, password, domain, lmhash, nthash)
     if smbClient.isGuestSession() > 0:
@@ -592,12 +605,12 @@ def init_smb_session(options, target_ip, domain, username, password, address, lm
     return smbClient
 
 
-def worker(options, target_name, domain, username, password, address, lmhash, nthash, aeskey, results, lock):
+def worker(options, target_name, domain, username, password, address, lmhash, nthash, results, lock):
     target_ip = dns_resolve(options, target_name)
     if target_ip is not None:
         if is_port_open(target_ip, 445):
             try:
-                smbClient = init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash, aeskey)
+                smbClient = init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash)
                 resp = smbClient.listShares()
                 for share in resp:
                     # SHARE_INFO_1 structure (lmshare.h)
@@ -606,7 +619,7 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
                     sharecomment = share['shi1_remark'][:-1]
                     sharetype = share['shi1_type']
 
-                    access_rights = {}
+                    access_rights = {"readable": False, "writable": False}
                     if options.check_user_access:
                         access_rights = get_access_rights(smbClient, sharename)
 
@@ -647,7 +660,7 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
     else:
         if options.debug:
             lock.acquire()
-            print("[!] Could not resolve", target_name)
+            print("[!] Could not resolve")
             lock.release()
 
 
@@ -666,10 +679,6 @@ if __name__ == '__main__':
         auth_dc_ip=options.dc_ip,
         auth_lm_hash=auth_lm_hash,
         auth_nt_hash=auth_nt_hash,
-        auth_key=options.auth_key,
-        use_kerberos=options.use_kerberos,
-        kdcHost=options.kdcHost,
-        use_ldaps=options.use_ldaps,
         verbose=options.verbose
     )
     mdns.check_wildcard_dns()
@@ -683,11 +692,8 @@ if __name__ == '__main__':
         auth_username=options.auth_username,
         auth_password=options.auth_password,
         auth_hashes=options.auth_hashes,
-        auth_key=options.auth_key,
         query=options.ldap_query,
-        attributes=["dNSHostName", "sAMAccountName"],        
-        use_kerberos=options.use_kerberos,
-        kdcHost=options.kdcHost
+        attributes=["dNSHostName", "sAMAccountName"]
     )
 
     if not options.quiet:
@@ -701,26 +707,21 @@ if __name__ == '__main__':
         lock = threading.Lock()
         # Waits for all the threads to be completed
         with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
-           for ck in computers.keys():
-               computer = computers[ck]
-               if options.use_kerberos is True:
-                   dnsHostName = computer['dNSHostName'][0]
-               else:
-                   dnsHostName = computer['dNSHostName']
-               tp.submit(
-                   worker,
-                   options,
-                   dnsHostName,
-                   options.auth_domain,
-                   options.auth_username,
-                   options.auth_password,
-                   dnsHostName,
-                   auth_lm_hash,
-                   auth_nt_hash,
-                   options.auth_key,
-                   results,
-                   lock
-               )
+            for ck in computers.keys():
+                computer = computers[ck]
+                tp.submit(
+                    worker,
+                    options,
+                    computer['dNSHostName'],
+                    options.auth_domain,
+                    options.auth_username,
+                    options.auth_password,
+                    computer['dNSHostName'],
+                    auth_lm_hash,
+                    auth_nt_hash,
+                    results,
+                    lock
+                )
 
         if options.export_json is not None:
             export_json(options, results)
