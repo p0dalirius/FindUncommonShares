@@ -6,33 +6,27 @@
 
 
 from concurrent.futures import ThreadPoolExecutor
-from enum import Enum
-from impacket import version
 from impacket.smbconnection import SMBConnection, SMB2_DIALECT_002, SMB2_DIALECT_21, SMB_DIALECT, SessionError
-from impacket.spnego import SPNEGO_NegTokenInit, TypesMech
 from sectools.windows.ldap import raw_ldap_query, init_ldap_session
-from sectools.windows.crypto import nt_hash, parse_lm_nt_hashes
+from sectools.windows.crypto import parse_lm_nt_hashes
 import argparse
-import binascii
 import dns.resolver
 import dns.exception
 import json
-import ldap3
-import logging
 import ntpath
 import os
 import random
 import re
 import sqlite3
 import socket
-import ssl
 import sys
 import threading
-import time
 import traceback
 import xlsxwriter
 
-VERSION = "3.0"
+
+VERSION = "3.1"
+
 
 COMMON_SHARES = [
     "C$",
@@ -280,6 +274,7 @@ def export_xlsx(options, results):
         workbook.close()
     print("done.")
 
+
 def export_sqlite(options, results):
     print("[>] Exporting results to %s ... " % options.export_sqlite, end="")
     sys.stdout.flush()
@@ -415,9 +410,13 @@ def parse_args():
 
     options = parser.parse_args()
 
-    if options.auth_password is None and options.no_pass == False:
+    if options.auth_password is None and options.no_pass == False and options.auth_hashes is None:
+        print("[+] No password of hashes provided and --no-pass is '%s'" % options.no_pass)
         from getpass import getpass
-        options.auth_password = getpass("Password:")
+        if options.auth_domain is not None:
+            options.auth_password = getpass("  | Provide a password for '%s\\%s':" % (options.auth_domain, options.auth_username))
+        else:
+            options.auth_password = getpass("  | Provide a password for '%s':" % options.auth_username)
 
     if options.readable == True or options.writable == True:
         options.check_user_access = True
@@ -671,66 +670,73 @@ if __name__ == '__main__':
             options.auth_hashes = ":" + options.auth_hashes
     auth_lm_hash, auth_nt_hash = parse_lm_nt_hashes(options.auth_hashes)
 
-    mdns = MicrosoftDNS(
-        dnsserver=options.dc_ip,
-        auth_domain=options.auth_domain,
-        auth_username=options.auth_username,
-        auth_password=options.auth_password,
-        auth_dc_ip=options.dc_ip,
-        auth_lm_hash=auth_lm_hash,
-        auth_nt_hash=auth_nt_hash,
-        verbose=options.verbose
-    )
-    mdns.check_wildcard_dns()
+    
+    try:
+        mdns = MicrosoftDNS(
+            dnsserver=options.dc_ip,
+            auth_domain=options.auth_domain,
+            auth_username=options.auth_username,
+            auth_password=options.auth_password,
+            auth_dc_ip=options.dc_ip,
+            auth_lm_hash=auth_lm_hash,
+            auth_nt_hash=auth_nt_hash,
+            verbose=options.verbose
+        )
+        mdns.check_wildcard_dns()
 
-    if not options.quiet:
-        print("[>] Extracting all computers ...")
+        if not options.quiet:
+            print("[>] Extracting all computers ...")
 
-    computers = raw_ldap_query(
-        auth_domain=options.auth_domain,
-        auth_dc_ip=options.dc_ip,
-        auth_username=options.auth_username,
-        auth_password=options.auth_password,
-        auth_hashes=options.auth_hashes,
-        query=options.ldap_query,
-        attributes=["dNSHostName", "sAMAccountName"]
-    )
+        computers = raw_ldap_query(
+            auth_domain=options.auth_domain,
+            auth_dc_ip=options.dc_ip,
+            auth_username=options.auth_username,
+            auth_password=options.auth_password,
+            auth_hashes=options.auth_hashes,
+            query=options.ldap_query,
+            attributes=["dNSHostName", "sAMAccountName"]
+        )
 
-    if not options.quiet:
-        print("[+] Found %d computers in the domain. \n" % len(computers.keys()))
-        print("[>] Enumerating shares ...")
+        if not options.quiet:
+            print("[+] Found %d computers in the domain. \n" % len(computers.keys()))
+            print("[>] Enumerating shares ...")
 
-    results = {}
+        results = {}
 
-    if len(computers.keys()) != 0:
-        # Setup thread lock to properly write in the file
-        lock = threading.Lock()
-        # Waits for all the threads to be completed
-        with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
-            for ck in computers.keys():
-                computer = computers[ck]
-                tp.submit(
-                    worker,
-                    options,
-                    computer['dNSHostName'],
-                    options.auth_domain,
-                    options.auth_username,
-                    options.auth_password,
-                    computer['dNSHostName'],
-                    auth_lm_hash,
-                    auth_nt_hash,
-                    results,
-                    lock
-                )
+        if len(computers.keys()) != 0:
+            # Setup thread lock to properly write in the file
+            lock = threading.Lock()
+            # Waits for all the threads to be completed
+            with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
+                for ck in computers.keys():
+                    computer = computers[ck]
+                    tp.submit(
+                        worker,
+                        options,
+                        computer['dNSHostName'],
+                        options.auth_domain,
+                        options.auth_username,
+                        options.auth_password,
+                        computer['dNSHostName'],
+                        auth_lm_hash,
+                        auth_nt_hash,
+                        results,
+                        lock
+                    )
 
-        if options.export_json is not None:
-            export_json(options, results)
+            if options.export_json is not None:
+                export_json(options, results)
 
-        if options.export_xlsx is not None:
-            export_xlsx(options, results)
+            if options.export_xlsx is not None:
+                export_xlsx(options, results)
 
-        if options.export_sqlite is not None:
-            export_sqlite(options, results)
-    else:
-        print("[!] No computers in the domain found matching filter '%s'" % options.ldap_query)
-    print("[+] Bye Bye!")
+            if options.export_sqlite is not None:
+                export_sqlite(options, results)
+        else:
+            print("[!] No computers in the domain found matching filter '%s'" % options.ldap_query)
+        print("[+] Bye Bye!")
+
+    except Exception as e:
+        if options.debug:
+            traceback.print_exc()
+        print("[!] Error: %s" % str(e))
