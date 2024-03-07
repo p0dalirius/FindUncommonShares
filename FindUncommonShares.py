@@ -424,96 +424,94 @@ def parse_args():
     return options
 
 
-def print_results(options, sharename, address, sharecomment, access_rights):
-    # Share is not a common share
-
+def print_results(options, shareData):
     str_access_readable, str_colored_access_readable = "", ""
     str_access_writable, str_colored_access_writable = "", ""
     str_access, str_colored_access = "", ""
     if options.check_user_access:
-        if access_rights["readable"] == True:
+        if shareData["share"]["access_rights"]["readable"] == True:
             str_access_readable = "READ"
             str_colored_access_readable = "\x1b[1;92mREAD\x1b[0m"
-        if access_rights["writable"] == True:
+        if shareData["share"]["access_rights"]["writable"] == True:
             str_access_writable = "WRITE"
             str_colored_access_writable = "\x1b[1;92mWRITE\x1b[0m"
-        if access_rights["readable"] == False and access_rights["writable"] == False:
+        if shareData["share"]["access_rights"]["readable"] == False and shareData["share"]["access_rights"]["writable"] == False:
             str_access = "access: DENIED"
             str_colored_access = "access: \x1b[1;91mDENIED\x1b[0m"
-        elif access_rights["readable"] == True and access_rights["writable"] == True:
+        elif shareData["share"]["access_rights"]["readable"] == True and shareData["share"]["access_rights"]["writable"] == True:
             str_access = "access: %s, %s" % (str_access_readable, str_access_writable)
             str_colored_access = "access: %s, %s" % (str_colored_access_readable, str_colored_access_writable)
-        elif access_rights["readable"] == False and access_rights["writable"] == True:
+        elif shareData["share"]["access_rights"]["readable"] == False and shareData["share"]["access_rights"]["writable"] == True:
             str_access = "access: %s" % str_access_writable
             str_colored_access = "access: %s" % str_colored_access_writable
-        elif access_rights["readable"] == True and access_rights["writable"] == False:
+        elif shareData["share"]["access_rights"]["readable"] == True and shareData["share"]["access_rights"]["writable"] == False:
             str_access = "access: %s" % str_access_readable
             str_colored_access = "access: %s" % str_colored_access_readable
 
-    # Specific use cases
+
     do_print_results = False
     # Print all results
     if options.readable == False and options.writable == False:
         do_print_results = True
-    # print results for readable shares
+    # Print results for readable shares
     if options.readable == True:
-        if access_rights["readable"] == True:
+        if shareData["share"]["access_rights"]["readable"] == True:
             do_print_results = True
         else:
             do_print_results = False
-    # print results for writable shares
+    # Print results for writable shares
     if options.writable == True:
-        if access_rights["writable"] == True:
+        if shareData["share"]["access_rights"]["writable"] == True:
             do_print_results = True
         else:
             do_print_results = False
 
-    if (sharename in COMMON_SHARES):
+    if (shareData["share"]["name"] in COMMON_SHARES):
         # Ignore this common share
         do_print_results = False
-    if options.ignore_hidden_shares and sharename.endswith('$'):
+    if options.ignore_hidden_shares and shareData["share"]["name"].endswith('$'):
         # Do not print hidden shares
         do_print_results = False
-    if (sharename in options.ignored_shares):
+    if (shareData["share"]["name"] in options.ignored_shares):
         # Ignore this specific share from the deny list
         do_print_results = False
-    if (sharename in options.accepted_shares):
+    if (shareData["share"]["name"] in options.accepted_shares):
         # Accept this specific share from the deny list
         do_print_results = True
 
     if do_print_results:
         if not options.quiet:
             # Share has a comment
-            if len(sharecomment) != 0:
+            if len(shareData["share"]["comment"]) != 0:
                 if options.colors:
                     # Hidden share
-                    if sharename.endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
+                    if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
                     # Not hidden share
                     else:
-                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
+                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
                 else:
                     # Default uncolored print 
-                    print("[>] Found '%s' on '%s' (comment: '%s') %s" % (sharename, address, sharecomment, str_access))
+                    print("[>] Found '%s' on '%s' (comment: '%s') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_access))
             
             # Share has no comment
             else:
                 if options.colors:
                     # Hidden share
-                    if sharename.endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
+                    if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
                     # Not hidden share
                     else:
                         # Default uncolored print 
-                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
+                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
                 else:
                     # Hidden share
-                    if sharename.endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '%s' on '%s' %s" % (sharename, address, str_access))
+                    if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                        print("[>] Found '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
                     # Not hidden share
                     else:
                         # Default uncolored print 
-                        print("[>] Found '%s' on '%s' %s" % (sharename, address, str_access))
+                        print("[>] Found '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
         else:
             # Quiet mode, do not print anything
             pass
@@ -521,42 +519,42 @@ def print_results(options, sharename, address, sharecomment, access_rights):
     # Debug mode in case of a common share
     elif options.debug and not options.quiet:
         # Share has a comment
-        if len(sharecomment) != 0:
+        if len(shareData["share"]["comment"]) != 0:
             # Colored output
             if options.colors:
                 # Hidden share
-                if sharename.endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
+                if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
                 # Not hidden share
                 else:
                     # Default uncolored print 
-                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
+                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
             # Not colored output
             else:
                 # Default uncolored print 
-                print("[>] Skipping common share '%s' on '%s' (comment: '%s') %s" % (sharename, address, sharecomment, str_access))
+                print("[>] Skipping common share '%s' on '%s' (comment: '%s') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_access))
 
         # Share has no comment
         else:
             # Colored output
             if options.colors:
                 # Hidden share
-                if sharename.endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping hidden share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
+                if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                    print("[>] Skipping hidden share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
                 # Not hidden share
                 else:
                     # Default uncolored print 
-                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
+                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
 
             # Not colored output
             else:
                 # Hidden share
-                if sharename.endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping hidden share '%s' on '%s' %s" % (sharename, address, str_access))
+                if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                    print("[>] Skipping hidden share '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
                 # Not hidden share
                 else:
                     # Default uncolored print 
-                    print("[>] Skipping common share '%s' on '%s' %s" % (sharename, address, str_access))
+                    print("[>] Skipping common share '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
 
 
 def get_machine_name(options, domain):
@@ -642,27 +640,28 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
                     lock.acquire()
                     if target_name not in results.keys():
                         results[target_name] = []
-                    results[target_name].append(
-                        {
-                            "computer": {
-                                "fqdn": target_name,
-                                "ip": target_ip
+                    
+                    shareData = {
+                        "computer": {
+                            "fqdn": target_name,
+                            "ip": target_ip
+                        },
+                        "share": {
+                            "name": sharename,
+                            "comment": sharecomment,
+                            "hidden": (True if sharename.endswith('$') else False),
+                            "uncpath": "\\".join(['', '', target_ip, sharename, '']),
+                            "type": {
+                                "stype_value": sharetype,
+                                "stype_flags": STYPE_MASK(sharetype)
                             },
-                            "share": {
-                                "name": sharename,
-                                "comment": sharecomment,
-                                "hidden": (True if sharename.endswith('$') else False),
-                                "uncpath": "\\".join(['', '', target_ip, sharename, '']),
-                                "type": {
-                                    "stype_value": sharetype,
-                                    "stype_flags": STYPE_MASK(sharetype)
-                                },
-                                "access_rights": access_rights
-                            }
+                            "access_rights": access_rights
                         }
-                    )
+                    }
 
-                    print_results(options, sharename, address, sharecomment, access_rights)
+                    results[target_name].append(shareData)
+
+                    print_results(options=options, shareData=shareData)
 
                     lock.release()
 
