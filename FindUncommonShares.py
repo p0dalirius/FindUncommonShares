@@ -471,8 +471,23 @@ def print_results(options, sharename, address, sharecomment, access_rights):
     if not do_print_results:
         return
 
-    if ((sharename not in COMMON_SHARES) or (sharename in options.accepted_shares)) and (sharename not in options.ignored_shares):
+    __do_print = True
+    if (sharename in COMMON_SHARES):
+        # Ignore this common share
+        __do_print = False
+    if options.ignore_hidden_shares and sharename.endswith('$'):
+        # Do not print hidden shares
+        __do_print = False
+    if (sharename in options.ignored_shares):
+        # Ignore this specific share from the deny list
+        __do_print = False
+    if (sharename in options.accepted_shares):
+        # Accept this specific share from the deny list
+        __do_print = True
+
+    if __do_print:
         if not options.quiet:
+            # Share has a comment
             if len(sharecomment) != 0:
                 if options.colors:
                     # Hidden share
@@ -482,7 +497,10 @@ def print_results(options, sharename, address, sharecomment, access_rights):
                     else:
                         print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
                 else:
+                    # Default uncolored print 
                     print("[>] Found '%s' on '%s' (comment: '%s') %s" % (sharename, address, sharecomment, str_access))
+            
+            # Share has no comment
             else:
                 if options.colors:
                     # Hidden share
@@ -490,6 +508,7 @@ def print_results(options, sharename, address, sharecomment, access_rights):
                         print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
                     # Not hidden share
                     else:
+                        # Default uncolored print 
                         print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
                 else:
                     # Hidden share
@@ -497,16 +516,16 @@ def print_results(options, sharename, address, sharecomment, access_rights):
                         print("[>] Found '%s' on '%s' %s" % (sharename, address, str_access))
                     # Not hidden share
                     else:
+                        # Default uncolored print 
                         print("[>] Found '%s' on '%s' %s" % (sharename, address, str_access))
         else:
             # Quiet mode, do not print anything
             pass
+    
     # Debug mode in case of a common share
     elif options.debug and not options.quiet:
-
         # Share has a comment
         if len(sharecomment) != 0:
-
             # Colored output
             if options.colors:
                 # Hidden share
@@ -514,10 +533,11 @@ def print_results(options, sharename, address, sharecomment, access_rights):
                     print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
                 # Not hidden share
                 else:
+                    # Default uncolored print 
                     print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (sharename, address, sharecomment, str_colored_access))
-
             # Not colored output
             else:
+                # Default uncolored print 
                 print("[>] Skipping common share '%s' on '%s' (comment: '%s') %s" % (sharename, address, sharecomment, str_access))
 
         # Share has no comment
@@ -526,19 +546,20 @@ def print_results(options, sharename, address, sharecomment, access_rights):
             if options.colors:
                 # Hidden share
                 if sharename.endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
+                    print("[>] Skipping hidden share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
                 # Not hidden share
                 else:
+                    # Default uncolored print 
                     print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (sharename, address, str_colored_access))
 
             # Not colored output
             else:
                 # Hidden share
-                if sharename.endswith('$'):
-                    if not options.ignore_hidden_shares:
-                        print("[>] Skipping common share '%s' on '%s' %s" % (sharename, address, str_access))
+                if sharename.endswith('$') and not options.ignore_hidden_shares:
+                    print("[>] Skipping hidden share '%s' on '%s' %s" % (sharename, address, str_access))
                 # Not hidden share
                 else:
+                    # Default uncolored print 
                     print("[>] Skipping common share '%s' on '%s' %s" % (sharename, address, str_access))
 
 
@@ -669,7 +690,6 @@ if __name__ == '__main__':
         if ":" not in options.auth_hashes:
             options.auth_hashes = ":" + options.auth_hashes
     auth_lm_hash, auth_nt_hash = parse_lm_nt_hashes(options.auth_hashes)
-
     
     try:
         mdns = MicrosoftDNS(
