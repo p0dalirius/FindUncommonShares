@@ -105,7 +105,7 @@ class MicrosoftDNS(object):
 
         return dns_answer
 
-    def check_wildcard_dns(self):
+    def check_presence_of_wildcard_dns(self):
         ldap_server, ldap_session = init_ldap_session(
             auth_domain=self.auth_domain,
             auth_dc_ip=self.auth_dc_ip,
@@ -363,7 +363,7 @@ def dns_resolve(options, target_name):
         return None
 
 
-def parse_args():
+def parseArgs():
     print("FindUncommonShares v%s - by @podalirius_\n" % VERSION)
 
     parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
@@ -379,12 +379,14 @@ def parse_args():
     parser.add_argument("-ns", "--nameserver", dest="nameserver", default=None, required=False, help="IP of the DNS server to use, instead of the --dc-ip.")
 
     # Shares
-    parser.add_argument("--check-user-access", default=False, action="store_true", help="Check if current user can access the share.")
-    parser.add_argument("--readable", default=False, action="store_true", help="Only list shares that current user has READ access to.")
-    parser.add_argument("--writable", default=False, action="store_true", help="Only list shares that current user has WRITE access to.")
-    parser.add_argument("-I", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
-    parser.add_argument("-i", "--ignore-share", default=[], dest="ignored_shares", action="append", required=False, help="Specify shares to ignore explicitly. (e.g., --ignore-share 'C$' --ignore-share 'Backup')")
-    parser.add_argument("-s", "--show-share", default=[], dest="accepted_shares", action="append", required=False, help="Specify shares to show explicitly. (e.g., --show-share 'C$' --show-share 'Backup')")
+    shares = parser.add_argument_group('Shares')
+    shares.add_argument("--check-user-access", default=False, action="store_true", help="Check if current user can access the share.")
+    shares.add_argument("--readable", default=False, action="store_true", help="Only list shares that current user has READ access to.")
+    shares.add_argument("--writable", default=False, action="store_true", help="Only list shares that current user has WRITE access to.")
+    shares.add_argument("-iH", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
+    shares.add_argument("-iP", "--ignore-print-queues", dest="ignore_print_queues", action="store_true", default=False, help="Ignores print queues (shares of STYPE_PRINTQ)")
+    shares.add_argument("-i", "--ignore-share", default=[], dest="ignored_shares", action="append", required=False, help="Specify shares to ignore explicitly. (e.g., --ignore-share 'C$' --ignore-share 'Backup')")
+    shares.add_argument("-s", "--show-share", default=[], dest="accepted_shares", action="append", required=False, help="Specify shares to show explicitly. (e.g., --show-share 'C$' --show-share 'Backup')")
 
     output = parser.add_argument_group('Output files')
     output.add_argument("--export-xlsx", dest="export_xlsx", type=str, default=None, required=False, help="Output XLSX file to store the results in.")
@@ -469,7 +471,10 @@ def print_results(options, shareData):
     if (shareData["share"]["name"] in COMMON_SHARES):
         # Ignore this common share
         do_print_results = False
-    if options.ignore_hidden_shares and shareData["share"]["name"].endswith('$'):
+    if shareData["share"]["name"].endswith('$') and options.ignore_hidden_shares:
+        # Do not print hidden shares
+        do_print_results = False
+    if ("STYPE_PRINTQ" in shareData["share"]["stype_flags"]) and options.ignore_print_queues:
         # Do not print hidden shares
         do_print_results = False
     if (shareData["share"]["name"] in options.ignored_shares):
@@ -680,12 +685,21 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
 
 
 if __name__ == '__main__':
-    options = parse_args()
+    options = parseArgs()
+
+    # Parse hashes
     if options.auth_hashes is not None:
         if ":" not in options.auth_hashes:
             options.auth_hashes = ":" + options.auth_hashes
     auth_lm_hash, auth_nt_hash = parse_lm_nt_hashes(options.auth_hashes)
     
+    # Use AES Authentication key if available
+    if options.auth_key is not None:
+        options.use_kerberos = True
+    if options.use_kerberos is True and options.kdcHost is None:
+        print("[!] Specify KDC's Hostname of FQDN using the argument --kdcHost")
+        exit()
+
     try:
         mdns = MicrosoftDNS(
             dnsserver=options.dc_ip,
@@ -697,7 +711,7 @@ if __name__ == '__main__':
             auth_nt_hash=auth_nt_hash,
             verbose=options.verbose
         )
-        mdns.check_wildcard_dns()
+        mdns.check_presence_of_wildcard_dns()
 
         if not options.quiet:
             print("[>] Extracting all computers ...")
