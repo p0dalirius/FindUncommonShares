@@ -468,24 +468,20 @@ def print_results(options, sharename, address, sharecomment, access_rights):
         else:
             do_print_results = False
 
-    if not do_print_results:
-        return
-
-    __do_print = True
     if (sharename in COMMON_SHARES):
         # Ignore this common share
-        __do_print = False
+        do_print_results = False
     if options.ignore_hidden_shares and sharename.endswith('$'):
         # Do not print hidden shares
-        __do_print = False
+        do_print_results = False
     if (sharename in options.ignored_shares):
         # Ignore this specific share from the deny list
-        __do_print = False
+        do_print_results = False
     if (sharename in options.accepted_shares):
         # Accept this specific share from the deny list
-        __do_print = True
+        do_print_results = True
 
-    if __do_print:
+    if do_print_results:
         if not options.quiet:
             # Share has a comment
             if len(sharecomment) != 0:
