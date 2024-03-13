@@ -39,7 +39,17 @@ COMMON_SHARES = [
 
 class MicrosoftDNS(object):
     """
-    Documentation for class MicrosoftDNS
+    Class to interact with Microsoft DNS servers for resolving domain names to IP addresses.
+    
+    Attributes:
+        dnsserver (str): The IP address of the DNS server.
+        verbose (bool): Flag to enable verbose mode.
+        auth_domain (str): The authentication domain.
+        auth_username (str): The authentication username.
+        auth_password (str): The authentication password.
+        auth_dc_ip (str): The IP address of the domain controller.
+        auth_lm_hash (str): The LM hash for authentication.
+        auth_nt_hash (str): The NT hash for authentication.
     """
 
     __wildcard_dns_cache = {}
@@ -56,6 +66,19 @@ class MicrosoftDNS(object):
         self.auth_nt_hash = auth_nt_hash
 
     def resolve(self, target_name):
+        """
+        Documentation for class MicrosoftDNS
+        
+        Attributes:
+            dnsserver (str): The IP address of the DNS server.
+            verbose (bool): Flag to enable verbose mode.
+            auth_domain (str): The authentication domain.
+            auth_username (str): The authentication username.
+            auth_password (str): The authentication password.
+            auth_dc_ip (str): The IP address of the domain controller.
+            auth_lm_hash (str): The LM hash for authentication.
+            auth_nt_hash (str): The NT hash for authentication.
+        """
         target_ips = []
         for rdtype in ["A", "AAAA"]:
             dns_answer = self.get_record(value=target_name, rdtype=rdtype)
@@ -67,6 +90,22 @@ class MicrosoftDNS(object):
         return target_ips
 
     def get_record(self, rdtype, value):
+        """
+        Retrieves DNS records for a specified value and record type using UDP and TCP protocols.
+
+        Parameters:
+            rdtype (str): The type of DNS record to retrieve.
+            value (str): The value for which the DNS record is to be retrieved.
+
+        Returns:
+            dns.resolver.Answer: The DNS answer containing the resolved records.
+
+        Raises:
+            dns.resolver.NXDOMAIN: If the domain does not exist.
+            dns.resolver.NoAnswer: If the domain exists but does not have the specified record type.
+            dns.resolver.NoNameservers: If no nameservers are found for the domain.
+            dns.exception.DNSException: For any other DNS-related exceptions.
+        """
         dns_resolver = dns.resolver.Resolver()
         dns_resolver.nameservers = [self.dnsserver]
         dns_answer = None
@@ -106,6 +145,16 @@ class MicrosoftDNS(object):
         return dns_answer
 
     def check_presence_of_wildcard_dns(self):
+        """
+        Check the presence of wildcard DNS entries in the Microsoft DNS server.
+
+        This function queries the Microsoft DNS server to find wildcard DNS entries in the DomainDnsZones of the specified domain.
+        It retrieves information about wildcard DNS entries and prints a warning message if any are found.
+
+        Returns:
+            dict: A dictionary containing information about wildcard DNS entries found in the Microsoft DNS server.
+        """
+        
         ldap_server, ldap_session = init_ldap_session(
             auth_domain=self.auth_domain,
             auth_dc_ip=self.auth_dc_ip,
@@ -366,7 +415,7 @@ def dns_resolve(options, target_name):
 def parseArgs():
     print("FindUncommonShares v%s - by @podalirius_\n" % VERSION)
 
-    parser = argparse.ArgumentParser(add_help=True, description='Find uncommon SMB shares on remote machines.')
+    parser = argparse.ArgumentParser(add_help=True, description="Find uncommon SMB shares on remote machines.")
 
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode. (default: False).")
 
@@ -379,22 +428,22 @@ def parseArgs():
     parser.add_argument("-ns", "--nameserver", dest="nameserver", default=None, required=False, help="IP of the DNS server to use, instead of the --dc-ip.")
 
     # Shares
-    shares = parser.add_argument_group('Shares')
+    shares = parser.add_argument_group("Shares")
     shares.add_argument("--check-user-access", default=False, action="store_true", help="Check if current user can access the share.")
     shares.add_argument("--readable", default=False, action="store_true", help="Only list shares that current user has READ access to.")
     shares.add_argument("--writable", default=False, action="store_true", help="Only list shares that current user has WRITE access to.")
     shares.add_argument("-iH", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
     shares.add_argument("-iP", "--ignore-print-queues", dest="ignore_print_queues", action="store_true", default=False, help="Ignores print queues (shares of STYPE_PRINTQ)")
-    shares.add_argument("-i", "--ignore-share", default=[], dest="ignored_shares", action="append", required=False, help="Specify shares to ignore explicitly. (e.g., --ignore-share 'C$' --ignore-share 'Backup')")
-    shares.add_argument("-s", "--show-share", default=[], dest="accepted_shares", action="append", required=False, help="Specify shares to show explicitly. (e.g., --show-share 'C$' --show-share 'Backup')")
+    shares.add_argument("-i", "--ignore-share", default=[], dest="ignored_shares", action="append", required=False, help="Specify shares to ignore explicitly. (e.g., --ignore-share \"C$\" --ignore-share \"Backup\")")
+    shares.add_argument("-s", "--show-share", default=[], dest="accepted_shares", action="append", required=False, help="Specify shares to show explicitly. (e.g., --show-share \"C$\" --show-share \"Backup\")")
 
-    output = parser.add_argument_group('Output files')
+    output = parser.add_argument_group("Output files")
     output.add_argument("--export-xlsx", dest="export_xlsx", type=str, default=None, required=False, help="Output XLSX file to store the results in.")
     output.add_argument("--export-json", dest="export_json", type=str, default=None, required=False, help="Output JSON file to store the results in.")
     output.add_argument("--export-sqlite", dest="export_sqlite", type=str, default=None, required=False, help="Output SQLITE3 file to store the results in.")
 
-    authconn = parser.add_argument_group('Authentication & connection')
-    authconn.add_argument('--dc-ip', required=True, action='store', metavar="ip address", help='IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter')
+    authconn = parser.add_argument_group("Authentication & connection")
+    authconn.add_argument("--dc-ip", required=True, action="store", metavar="ip address", help="IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter")
     authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", default="", help="(FQDN) domain to authenticate to")
     authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", default="", help="user to authenticate with")
 
@@ -402,9 +451,9 @@ def parseArgs():
     cred = secret.add_mutually_exclusive_group()
     cred.add_argument("--no-pass", default=False, action="store_true", help="Don't ask for password (useful for -k)")
     cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", default=None, help="Password to authenticate with")
-    cred.add_argument("-H", "--hashes", dest="auth_hashes", action="store", metavar="[LMHASH:]NTHASH", help='NT/LM hashes, format is LMhash:NThash')
-    cred.add_argument("--aes-key", dest="auth_key", action="store", metavar="hex key", help='AES key to use for Kerberos Authentication (128 or 256 bits)')
-    secret.add_argument("-k", "--kerberos", dest="use_kerberos", action="store_true", help='Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line')
+    cred.add_argument("-H", "--hashes", dest="auth_hashes", action="store", metavar="[LMHASH:]NTHASH", help="NT/LM hashes, format is LMhash:NThash")
+    cred.add_argument("--aes-key", dest="auth_key", action="store", metavar="hex key", help="AES key to use for Kerberos Authentication (128 or 256 bits)")
+    secret.add_argument("-k", "--kerberos", dest="use_kerberos", action="store_true", help="Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line")
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -474,7 +523,7 @@ def print_results(options, shareData):
     if shareData["share"]["name"].endswith('$') and options.ignore_hidden_shares:
         # Do not print hidden shares
         do_print_results = False
-    if ("STYPE_PRINTQ" in shareData["share"]["stype_flags"]) and options.ignore_print_queues:
+    if ("STYPE_PRINTQ" in shareData["share"]["stype_flags"]) and options.ignore_hidden_shares:
         # Do not print hidden shares
         do_print_results = False
     if (shareData["share"]["name"] in options.ignored_shares):
