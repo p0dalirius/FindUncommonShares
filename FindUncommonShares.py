@@ -730,7 +730,7 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
     else:
         if options.debug:
             lock.acquire()
-            print("[!] Could not resolve")
+            print("[!] Could not resolve '%s'" % target_name)
             lock.release()
 
 
