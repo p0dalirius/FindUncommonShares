@@ -774,6 +774,7 @@ if __name__ == '__main__':
             auth_password=options.auth_password,
             auth_hashes=options.auth_hashes,
             query=options.ldap_query,
+            use_ldaps=options.use_ldaps,
             attributes=["dNSHostName", "sAMAccountName"]
         )
 
