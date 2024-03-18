@@ -54,7 +54,7 @@ class MicrosoftDNS(object):
 
     __wildcard_dns_cache = {}
 
-    def __init__(self, dnsserver, auth_domain, auth_username, auth_password, auth_dc_ip, auth_lm_hash, auth_nt_hash, verbose=False):
+    def __init__(self, dnsserver, auth_domain, auth_username, auth_password, auth_dc_ip, auth_lm_hash, auth_nt_hash, use_ldaps=False, verbose=False):
         super(MicrosoftDNS, self).__init__()
         self.dnsserver = dnsserver
         self.verbose = verbose
@@ -64,6 +64,7 @@ class MicrosoftDNS(object):
         self.auth_dc_ip = auth_dc_ip
         self.auth_lm_hash = auth_lm_hash
         self.auth_nt_hash = auth_nt_hash
+        self.use_ldaps = use_ldaps
 
     def resolve(self, target_name):
         """
@@ -162,7 +163,7 @@ class MicrosoftDNS(object):
             auth_password=self.auth_password,
             auth_lm_hash=self.auth_lm_hash,
             auth_nt_hash=self.auth_nt_hash,
-            use_ldaps=False
+            use_ldaps=self.use_ldaps
         )
 
         target_dn = "CN=MicrosoftDNS,DC=DomainDnsZones," + ldap_server.info.other["rootDomainNamingContext"][0]
@@ -758,6 +759,7 @@ if __name__ == '__main__':
             auth_dc_ip=options.dc_ip,
             auth_lm_hash=auth_lm_hash,
             auth_nt_hash=auth_nt_hash,
+            use_ldaps=options.use_ldaps,
             verbose=options.verbose
         )
         mdns.check_presence_of_wildcard_dns()
