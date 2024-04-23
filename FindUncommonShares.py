@@ -439,6 +439,7 @@ def parseArgs():
     group_targets_source.add_argument("-ai", "--auth-dc-ip", default=None, type=str, help="IP of the domain controller.")
     group_targets_source.add_argument("-au", "--auth-user", default=None, type=str, help="Username of the domain account.")
     group_targets_source.add_argument("--ldaps", default=False, action="store_true", help="Use LDAPS (default: False)")
+    group_targets_source.add_argument("--no-ldap", default=False, action="store_true", help="Do not perform LDAP queries.")
     group_targets_source.add_argument("--subnets", default=False, action="store_true", help="Get all subnets from the domain and use them as targets (default: False)")
     group_targets_source.add_argument("-tl", "--target-ldap-query", dest="target_ldap_query", type=str, default=None, required=False, help="LDAP query to use to extract computers from the domain.")
     
@@ -476,9 +477,9 @@ def parseArgs():
         print("[+] No password of hashes provided and --no-pass is '%s'" % options.no_pass)
         from getpass import getpass
         if options.auth_domain is not None:
-            options.auth_password = getpass("  | Provide a password for '%s\\%s':" % (options.auth_domain, options.auth_username))
+            options.auth_password = getpass("  | Provide a password for '%s\\%s':" % (options.auth_domain, options.auth_user))
         else:
-            options.auth_password = getpass("  | Provide a password for '%s':" % options.auth_username)
+            options.auth_password = getpass("  | Provide a password for '%s':" % options.auth_user)
 
     if options.readable == True or options.writable == True:
         options.check_user_access = True
@@ -636,7 +637,7 @@ def get_machine_name(options, domain):
         s.login('', '')
     except Exception:
         if s.getServerName() == '':
-            raise Exception('Error while anonymous logging into %s' % domain)
+            raise Exception("Error while anonymous logging into %s" % domain)
     else:
         s.logoff()
     return s.getServerName()
@@ -758,7 +759,8 @@ def worker(options, target, domain, username, password, lmhash, nthash, results,
             except Exception as err:
                 if options.debug:
                     lock.acquire()
-                    print(err)
+                    if options.debug:
+                        traceback.print_exc()
                     lock.release()
         else:
             if options.debug:
@@ -778,51 +780,54 @@ def load_targets(options):
     targets = []
 
     # Loading targets from domain computers
-    if options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None) and options.target_ldap_query is None:
-        if options.debug:
-            print("[debug] Loading targets from computers in the domain '%s'" % options.auth_domain)
-        targets += get_computers_from_domain(
-            auth_domain=options.auth_domain,
-            auth_dc_ip=options.auth_dc_ip,
-            auth_username=options.auth_user,
-            auth_password=options.auth_password,
-            auth_hashes=options.auth_hashes,
-            auth_key=None,
-            use_ldaps=options.ldaps,
-            __print=False
-        )
+    if not options.no_ldap:
+        if options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None) and options.target_ldap_query is None:
+            if options.debug:
+                print("[debug] Loading targets from computers in the domain '%s'" % options.auth_domain)
+            targets += get_computers_from_domain(
+                auth_domain=options.auth_domain,
+                auth_dc_ip=options.auth_dc_ip,
+                auth_username=options.auth_user,
+                auth_password=options.auth_password,
+                auth_hashes=options.auth_hashes,
+                auth_key=None,
+                use_ldaps=options.ldaps,
+                __print=False
+            )
 
     # Loading targets from domain computers
-    if options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None) and options.target_ldap_query is not None:
-        if options.debug:
-            print("[debug] Loading targets from specfic LDAP query '%s'" % options.target_ldap_query)
-        computers = raw_ldap_query(
-            auth_domain=options.auth_domain,
-            auth_dc_ip=options.auth_dc_ip,
-            auth_username=options.auth_username,
-            auth_password=options.auth_password,
-            auth_hashes=options.auth_hashes,
-            query=options.target_ldap_query,
-            use_ldaps=options.use_ldaps,
-            attributes=["dNSHostName"]
-        )
-        for _, computer in computers:
-            targets.append(computer["dNSHostName"])
+    if not options.no_ldap:
+        if options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None) and options.target_ldap_query is not None:
+            if options.debug:
+                print("[debug] Loading targets from specfic LDAP query '%s'" % options.target_ldap_query)
+            computers = raw_ldap_query(
+                auth_domain=options.auth_domain,
+                auth_dc_ip=options.auth_dc_ip,
+                auth_username=options.auth_username,
+                auth_password=options.auth_password,
+                auth_hashes=options.auth_hashes,
+                query=options.target_ldap_query,
+                use_ldaps=options.use_ldaps,
+                attributes=["dNSHostName"]
+            )
+            for _, computer in computers:
+                targets.append(computer["dNSHostName"])
 
     # Loading targets from subnetworks of the domain
-    if options.subnets and options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None):
-        if options.debug:
-            print("[debug] Loading targets from subnetworks of the domain '%s'" % options.auth_domain)
-        targets += get_subnets(
-            auth_domain=options.auth_domain,
-            auth_dc_ip=options.auth_dc_ip,
-            auth_username=options.auth_user,
-            auth_password=options.auth_password,
-            auth_hashes=options.auth_hashes,
-            auth_key=None,
-            use_ldaps=options.ldaps,
-            __print=True
-        )
+    if not options.no_ldap:
+        if options.subnets and options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None):
+            if options.debug:
+                print("[debug] Loading targets from subnetworks of the domain '%s'" % options.auth_domain)
+            targets += get_subnets(
+                auth_domain=options.auth_domain,
+                auth_dc_ip=options.auth_dc_ip,
+                auth_username=options.auth_user,
+                auth_password=options.auth_password,
+                auth_hashes=options.auth_hashes,
+                auth_key=None,
+                use_ldaps=options.ldaps,
+                __print=True
+            )
 
     # Loading targets line by line from a targets file
     if options.targets_file is not None:
@@ -884,6 +889,7 @@ def load_targets(options):
                 print("[debug] Target '%s' was not added." % target)
 
     final_targets = sorted(list(set(final_targets)))
+    
     return final_targets
 
 
