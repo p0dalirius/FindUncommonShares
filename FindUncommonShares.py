@@ -7,7 +7,9 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from impacket.smbconnection import SMBConnection, SMB2_DIALECT_002, SMB2_DIALECT_21, SMB_DIALECT, SessionError
-from sectools.windows.ldap import raw_ldap_query, init_ldap_session
+from sectools.windows.ldap import get_computers_from_domain, get_servers_from_domain, get_subnets, raw_ldap_query, init_ldap_session
+from sectools.network.domains import is_fqdn
+from sectools.network.ip import is_ipv4_cidr, is_ipv4_addr, is_ipv6_addr, expand_cidr
 from sectools.windows.crypto import parse_lm_nt_hashes
 import argparse
 import dns.resolver
@@ -22,10 +24,11 @@ import socket
 import sys
 import threading
 import traceback
+import urllib.parse
 import xlsxwriter
 
 
-VERSION = "3.1"
+VERSION = "3.2"
 
 
 COMMON_SHARES = [
@@ -371,7 +374,7 @@ def dns_resolve(options, target_name):
     if options.nameserver is not None:
         dns_resolver.nameservers = [options.nameserver]
     else:
-        dns_resolver.nameservers = [options.dc_ip]
+        dns_resolver.nameservers = [options.auth_dc_ip]
     dns_answer = None
 
     # Try UDP
@@ -420,17 +423,37 @@ def parseArgs():
 
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose mode. (default: False).")
 
-    parser.add_argument("--use-ldaps", default=False, action="store_true", help="Use LDAPS instead of LDAP.")
     parser.add_argument("-q", "--quiet", dest="quiet", action="store_true", default=False, help="Show no information at all.")
     parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Debug mode. (default: False).")
     parser.add_argument("-no-colors", dest="colors", action="store_false", default=True, help="Disables colored output mode.")
     parser.add_argument("-t", "--threads", dest="threads", action="store", type=int, default=20, required=False, help="Number of threads (default: 20).")
-    parser.add_argument("-l", "--ldap-query", dest="ldap_query", type=str, default="(objectCategory=computer)", required=False, help="LDAP query to use to extract computers from the domain.")
     parser.add_argument("-ns", "--nameserver", dest="nameserver", default=None, required=False, help="IP of the DNS server to use, instead of the --dc-ip.")
+
+    group_targets_source = parser.add_argument_group("Targets")
+    group_targets_source.add_argument("-tf", "--targets-file", default=None, type=str, help="Path to file containing a line by line list of targets.")
+    group_targets_source.add_argument("-tt", "--target", default=[], type=str, action='append', help="Target IP, FQDN or CIDR.")
+    group_targets_source.add_argument("-tu", "--target-url", default=[], type=str, action='append', help="Target URL to the tomcat manager.")
+    group_targets_source.add_argument("-tU", "--targets-urls-file", default=None, type=str, help="Path to file containing a line by line list of target URLs.")
+    group_targets_source.add_argument("-tp", "--target-ports", default="80,443,8080,8081,8180,9080,9081,10080", type=str, help="Target ports to scan top search for Apache Tomcat servers.")
+    group_targets_source.add_argument("-ad", "--auth-domain", default="", type=str, help="Windows domain to authenticate to.")
+    group_targets_source.add_argument("-ai", "--auth-dc-ip", default=None, type=str, help="IP of the domain controller.")
+    group_targets_source.add_argument("-au", "--auth-user", default=None, type=str, help="Username of the domain account.")
+    group_targets_source.add_argument("--ldaps", default=False, action="store_true", help="Use LDAPS (default: False)")
+    group_targets_source.add_argument("--subnets", default=False, action="store_true", help="Get all subnets from the domain and use them as targets (default: False)")
+    group_targets_source.add_argument("-tl", "--target-ldap-query", dest="target_ldap_query", type=str, default=None, required=False, help="LDAP query to use to extract computers from the domain.")
+    
+    secret = parser.add_argument_group("Credentials")
+    cred = secret.add_mutually_exclusive_group()
+    cred.add_argument("--no-pass", default=False, action="store_true", help="Don't ask for password (useful for -k)")
+    cred.add_argument("-ap", "--auth-password", default=None, type=str, help="Password of the domain account.")
+    cred.add_argument("-ah", "--auth-hashes", default=None, type=str, help="LM:NT hashes to pass the hash for this user.")
+    cred.add_argument("--aes-key", dest="auth_key", action="store", metavar="hex key", help="AES key to use for Kerberos Authentication (128 or 256 bits)")
+    secret.add_argument("-k", "--kerberos", dest="auth_use_kerberos", action="store_true", help="Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line")
+    secret.add_argument("--kdcHost", dest="auth_kdcHost", default=None, type=str, help="IP of the domain controller.")
 
     # Shares
     shares = parser.add_argument_group("Shares")
-    shares.add_argument("--check-user-access", default=False, action="store_true", help="Check if current user can access the share.")
+    shares.add_argument("--check-user-access", dest="check_user_access", default=False, action="store_true", help="Check if current user can access the share.")
     shares.add_argument("--readable", default=False, action="store_true", help="Only list shares that current user has READ access to.")
     shares.add_argument("--writable", default=False, action="store_true", help="Only list shares that current user has WRITE access to.")
     shares.add_argument("-iH", "--ignore-hidden-shares", dest="ignore_hidden_shares", action="store_true", default=False, help="Ignores hidden shares (shares ending with $)")
@@ -442,19 +465,6 @@ def parseArgs():
     output.add_argument("--export-xlsx", dest="export_xlsx", type=str, default=None, required=False, help="Output XLSX file to store the results in.")
     output.add_argument("--export-json", dest="export_json", type=str, default=None, required=False, help="Output JSON file to store the results in.")
     output.add_argument("--export-sqlite", dest="export_sqlite", type=str, default=None, required=False, help="Output SQLITE3 file to store the results in.")
-
-    authconn = parser.add_argument_group("Authentication & connection")
-    authconn.add_argument("--dc-ip", required=True, action="store", metavar="ip address", help="IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the domain part (FQDN) specified in the identity parameter")
-    authconn.add_argument("-d", "--domain", dest="auth_domain", metavar="DOMAIN", action="store", default="", help="(FQDN) domain to authenticate to")
-    authconn.add_argument("-u", "--user", dest="auth_username", metavar="USER", action="store", default="", help="user to authenticate with")
-
-    secret = parser.add_argument_group("Credentials")
-    cred = secret.add_mutually_exclusive_group()
-    cred.add_argument("--no-pass", default=False, action="store_true", help="Don't ask for password (useful for -k)")
-    cred.add_argument("-p", "--password", dest="auth_password", metavar="PASSWORD", action="store", default=None, help="Password to authenticate with")
-    cred.add_argument("-H", "--hashes", dest="auth_hashes", action="store", metavar="[LMHASH:]NTHASH", help="NT/LM hashes, format is LMhash:NThash")
-    cred.add_argument("--aes-key", dest="auth_key", action="store", metavar="hex key", help="AES key to use for Kerberos Authentication (128 or 256 bits)")
-    secret.add_argument("-k", "--kerberos", dest="use_kerberos", action="store_true", help="Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot be found, it will use the ones specified in the command line")
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -477,144 +487,149 @@ def parseArgs():
 
 
 def print_results(options, shareData):
-    str_access_readable, str_colored_access_readable = "", ""
-    str_access_writable, str_colored_access_writable = "", ""
-    str_access, str_colored_access = "", ""
-    if options.check_user_access:
-        if shareData["share"]["access_rights"]["readable"] == True:
-            str_access_readable = "READ"
-            str_colored_access_readable = "\x1b[1;92mREAD\x1b[0m"
-        if shareData["share"]["access_rights"]["writable"] == True:
-            str_access_writable = "WRITE"
-            str_colored_access_writable = "\x1b[1;92mWRITE\x1b[0m"
-        if shareData["share"]["access_rights"]["readable"] == False and shareData["share"]["access_rights"]["writable"] == False:
-            str_access = "access: DENIED"
-            str_colored_access = "access: \x1b[1;91mDENIED\x1b[0m"
-        elif shareData["share"]["access_rights"]["readable"] == True and shareData["share"]["access_rights"]["writable"] == True:
-            str_access = "access: %s, %s" % (str_access_readable, str_access_writable)
-            str_colored_access = "access: %s, %s" % (str_colored_access_readable, str_colored_access_writable)
-        elif shareData["share"]["access_rights"]["readable"] == False and shareData["share"]["access_rights"]["writable"] == True:
-            str_access = "access: %s" % str_access_writable
-            str_colored_access = "access: %s" % str_colored_access_writable
-        elif shareData["share"]["access_rights"]["readable"] == True and shareData["share"]["access_rights"]["writable"] == False:
-            str_access = "access: %s" % str_access_readable
-            str_colored_access = "access: %s" % str_colored_access_readable
+    try:
+        str_access_readable, str_colored_access_readable = "", ""
+        str_access_writable, str_colored_access_writable = "", ""
+        str_access, str_colored_access = "", ""
+        if options.check_user_access:
+            if shareData["share"]["access_rights"]["readable"] == True:
+                str_access_readable = "READ"
+                str_colored_access_readable = "\x1b[1;92mREAD\x1b[0m"
+            if shareData["share"]["access_rights"]["writable"] == True:
+                str_access_writable = "WRITE"
+                str_colored_access_writable = "\x1b[1;92mWRITE\x1b[0m"
+            if shareData["share"]["access_rights"]["readable"] == False and shareData["share"]["access_rights"]["writable"] == False:
+                str_access = "access: DENIED"
+                str_colored_access = "access: \x1b[1;91mDENIED\x1b[0m"
+            elif shareData["share"]["access_rights"]["readable"] == True and shareData["share"]["access_rights"]["writable"] == True:
+                str_access = "access: %s, %s" % (str_access_readable, str_access_writable)
+                str_colored_access = "access: %s, %s" % (str_colored_access_readable, str_colored_access_writable)
+            elif shareData["share"]["access_rights"]["readable"] == False and shareData["share"]["access_rights"]["writable"] == True:
+                str_access = "access: %s" % str_access_writable
+                str_colored_access = "access: %s" % str_colored_access_writable
+            elif shareData["share"]["access_rights"]["readable"] == True and shareData["share"]["access_rights"]["writable"] == False:
+                str_access = "access: %s" % str_access_readable
+                str_colored_access = "access: %s" % str_colored_access_readable
 
 
-    do_print_results = False
-    # Print all results
-    if options.readable == False and options.writable == False:
-        do_print_results = True
-    # Print results for readable shares
-    if options.readable == True:
-        if shareData["share"]["access_rights"]["readable"] == True:
+        do_print_results = False
+        # Print all results
+        if options.readable == False and options.writable == False:
             do_print_results = True
-        else:
+        # Print results for readable shares
+        if options.readable == True:
+            if shareData["share"]["access_rights"]["readable"] == True:
+                do_print_results = True
+            else:
+                do_print_results = False
+        # Print results for writable shares
+        if options.writable == True:
+            if shareData["share"]["access_rights"]["writable"] == True:
+                do_print_results = True
+            else:
+                do_print_results = False
+
+        if (shareData["share"]["name"] in COMMON_SHARES):
+            # Ignore this common share
             do_print_results = False
-    # Print results for writable shares
-    if options.writable == True:
-        if shareData["share"]["access_rights"]["writable"] == True:
+        if shareData["share"]["name"].endswith('$') and options.ignore_hidden_shares:
+            # Do not print hidden shares
+            do_print_results = False
+        if ("STYPE_PRINTQ" in shareData["share"]["type"]["stype_flags"]) and options.ignore_hidden_shares:
+            # Do not print hidden shares
+            do_print_results = False
+        if (shareData["share"]["name"] in options.ignored_shares):
+            # Ignore this specific share from the deny list
+            do_print_results = False
+        if (shareData["share"]["name"] in options.accepted_shares):
+            # Accept this specific share from the deny list
             do_print_results = True
-        else:
-            do_print_results = False
 
-    if (shareData["share"]["name"] in COMMON_SHARES):
-        # Ignore this common share
-        do_print_results = False
-    if shareData["share"]["name"].endswith('$') and options.ignore_hidden_shares:
-        # Do not print hidden shares
-        do_print_results = False
-    if ("STYPE_PRINTQ" in shareData["share"]["stype_flags"]) and options.ignore_hidden_shares:
-        # Do not print hidden shares
-        do_print_results = False
-    if (shareData["share"]["name"] in options.ignored_shares):
-        # Ignore this specific share from the deny list
-        do_print_results = False
-    if (shareData["share"]["name"] in options.accepted_shares):
-        # Accept this specific share from the deny list
-        do_print_results = True
-
-    if do_print_results:
-        if not options.quiet:
+        if do_print_results:
+            if not options.quiet:
+                # Share has a comment
+                if len(shareData["share"]["comment"]) != 0:
+                    if options.colors:
+                        # Hidden share
+                        if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                            print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
+                        # Not hidden share
+                        else:
+                            print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
+                    else:
+                        # Default uncolored print 
+                        print("[>] Found '%s' on '%s' (comment: '%s') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_access))
+                
+                # Share has no comment
+                else:
+                    if options.colors:
+                        # Hidden share
+                        if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                            print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
+                        # Not hidden share
+                        else:
+                            # Default uncolored print 
+                            print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
+                    else:
+                        # Hidden share
+                        if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
+                            print("[>] Found '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
+                        # Not hidden share
+                        else:
+                            # Default uncolored print 
+                            print("[>] Found '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
+            else:
+                # Quiet mode, do not print anything
+                pass
+        
+        # Debug mode in case of a common share
+        elif options.debug and not options.quiet:
             # Share has a comment
             if len(shareData["share"]["comment"]) != 0:
+                # Colored output
                 if options.colors:
                     # Hidden share
                     if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
+                        print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
                     # Not hidden share
                     else:
-                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
+                        # Default uncolored print 
+                        print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
+                # Not colored output
                 else:
                     # Default uncolored print 
-                    print("[>] Found '%s' on '%s' (comment: '%s') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_access))
-            
+                    print("[>] Skipping common share '%s' on '%s' (comment: '%s') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_access))
+
             # Share has no comment
             else:
+                # Colored output
                 if options.colors:
                     # Hidden share
                     if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
+                        print("[>] Skipping hidden share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
                     # Not hidden share
                     else:
                         # Default uncolored print 
-                        print("[>] Found '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
+                        print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
+
+                # Not colored output
                 else:
                     # Hidden share
                     if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
-                        print("[>] Found '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
+                        print("[>] Skipping hidden share '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
                     # Not hidden share
                     else:
                         # Default uncolored print 
-                        print("[>] Found '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
-        else:
-            # Quiet mode, do not print anything
-            pass
+                        print("[>] Skipping common share '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
     
-    # Debug mode in case of a common share
-    elif options.debug and not options.quiet:
-        # Share has a comment
-        if len(shareData["share"]["comment"]) != 0:
-            # Colored output
-            if options.colors:
-                # Hidden share
-                if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping common share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
-                # Not hidden share
-                else:
-                    # Default uncolored print 
-                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' (comment: '\x1b[95m%s\x1b[0m') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_colored_access))
-            # Not colored output
-            else:
-                # Default uncolored print 
-                print("[>] Skipping common share '%s' on '%s' (comment: '%s') %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], shareData["share"]["comment"], str_access))
-
-        # Share has no comment
-        else:
-            # Colored output
-            if options.colors:
-                # Hidden share
-                if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping hidden share '\x1b[94m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
-                # Not hidden share
-                else:
-                    # Default uncolored print 
-                    print("[>] Skipping common share '\x1b[93m%s\x1b[0m' on '\x1b[96m%s\x1b[0m' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_colored_access))
-
-            # Not colored output
-            else:
-                # Hidden share
-                if shareData["share"]["name"].endswith('$') and not options.ignore_hidden_shares:
-                    print("[>] Skipping hidden share '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
-                # Not hidden share
-                else:
-                    # Default uncolored print 
-                    print("[>] Skipping common share '%s' on '%s' %s" % (shareData["share"]["name"], shareData["computer"]["fqdn"], str_access))
+    except Exception as e:
+        if options.debug:
+            traceback.print_exc()
 
 
 def get_machine_name(options, domain):
-    if options.dc_ip is not None:
-        s = SMBConnection(options.dc_ip, options.dc_ip)
+    if options.auth_dc_ip is not None:
+        s = SMBConnection(options.auth_dc_ip, options.auth_dc_ip)
     else:
         s = SMBConnection(domain, domain)
     try:
@@ -661,10 +676,12 @@ def init_smb_session(options, target_ip, domain, username, password, address, lm
     else:
         if debug:
             print("[debug] SMBv3.0 dialect used")
-    if options.use_kerberos is True:
-        smbClient.kerberosLogin(username, password, domain, lmhash, nthash, options.aesKey, options.dc_ip)
+    # 
+    if options.auth_use_kerberos is True:
+        smbClient.kerberosLogin(username, password, domain, lmhash, nthash, options.auth_key, options.auth_dc_ip)
     else:
         smbClient.login(username, password, domain, lmhash, nthash)
+    # 
     if smbClient.isGuestSession() > 0:
         if debug:
             print("[debug] GUEST Session Granted")
@@ -674,31 +691,45 @@ def init_smb_session(options, target_ip, domain, username, password, address, lm
     return smbClient
 
 
-def worker(options, target_name, domain, username, password, address, lmhash, nthash, results, lock):
-    target_ip = dns_resolve(options, target_name)
+def worker(options, target, domain, username, password, lmhash, nthash, results, lock):
+    target_type, target_data = target
+    
+    target_ip = None
+    target_name = ""
+    if target_type.lower() in ["ip", "ipv4", "ipv6"]:
+        target_name = target_data
+        target_ip = target_data
+
+    elif target_type.lower() in ["fqdn"]:
+        target_name = target_data
+        target_ip = dns_resolve(options, target_data)
+        if target_ip is not None:
+            if options.debug:
+                lock.acquire()
+                print("[+] Resolved '%s' to %s" % (target_name, target_ip))
+                lock.release()
+
     if target_ip is not None:
         if is_port_open(target_ip, 445):
             try:
-                smbClient = init_smb_session(options, target_ip, domain, username, password, address, lmhash, nthash)
+                smbClient = init_smb_session(options, target_ip, domain, username, password, target_ip, lmhash, nthash)
+
                 resp = smbClient.listShares()
+
                 for share in resp:
                     # SHARE_INFO_1 structure (lmshare.h)
                     # https://docs.microsoft.com/en-us/windows/win32/api/lmshare/ns-lmshare-share_info_1
-                    sharename = share['shi1_netname'][:-1]
-                    sharecomment = share['shi1_remark'][:-1]
-                    sharetype = share['shi1_type']
+                    sharename = share["shi1_netname"][:-1]
+                    sharecomment = share["shi1_remark"][:-1]
+                    sharetype = share["shi1_type"]
 
                     access_rights = {"readable": False, "writable": False}
                     if options.check_user_access:
                         access_rights = get_access_rights(smbClient, sharename)
-
-                    lock.acquire()
-                    if target_name not in results.keys():
-                        results[target_name] = []
                     
                     shareData = {
                         "computer": {
-                            "fqdn": target_name,
+                            "fqdn": target_ip,
                             "ip": target_ip
                         },
                         "share": {
@@ -714,6 +745,10 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
                         }
                     }
 
+                    lock.acquire()
+
+                    if target_name not in results.keys():
+                        results[target_name] = []
                     results[target_name].append(shareData)
 
                     print_results(options=options, shareData=shareData)
@@ -725,6 +760,11 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
                     lock.acquire()
                     print(err)
                     lock.release()
+        else:
+            if options.debug:
+                lock.acquire()
+                print("[!] Could not connect to '%s:445'" % target_ip)
+                lock.release()
 
     # DNS Resolution failed
     else:
@@ -732,6 +772,119 @@ def worker(options, target_name, domain, username, password, address, lmhash, nt
             lock.acquire()
             print("[!] Could not resolve '%s'" % target_name)
             lock.release()
+
+
+def load_targets(options):
+    targets = []
+
+    # Loading targets from domain computers
+    if options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None) and options.target_ldap_query is None:
+        if options.debug:
+            print("[debug] Loading targets from computers in the domain '%s'" % options.auth_domain)
+        targets += get_computers_from_domain(
+            auth_domain=options.auth_domain,
+            auth_dc_ip=options.auth_dc_ip,
+            auth_username=options.auth_user,
+            auth_password=options.auth_password,
+            auth_hashes=options.auth_hashes,
+            auth_key=None,
+            use_ldaps=options.ldaps,
+            __print=False
+        )
+
+    # Loading targets from domain computers
+    if options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None) and options.target_ldap_query is not None:
+        if options.debug:
+            print("[debug] Loading targets from specfic LDAP query '%s'" % options.target_ldap_query)
+        computers = raw_ldap_query(
+            auth_domain=options.auth_domain,
+            auth_dc_ip=options.auth_dc_ip,
+            auth_username=options.auth_username,
+            auth_password=options.auth_password,
+            auth_hashes=options.auth_hashes,
+            query=options.target_ldap_query,
+            use_ldaps=options.use_ldaps,
+            attributes=["dNSHostName"]
+        )
+        for _, computer in computers:
+            targets.append(computer["dNSHostName"])
+
+    # Loading targets from subnetworks of the domain
+    if options.subnets and options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None):
+        if options.debug:
+            print("[debug] Loading targets from subnetworks of the domain '%s'" % options.auth_domain)
+        targets += get_subnets(
+            auth_domain=options.auth_domain,
+            auth_dc_ip=options.auth_dc_ip,
+            auth_username=options.auth_user,
+            auth_password=options.auth_password,
+            auth_hashes=options.auth_hashes,
+            auth_key=None,
+            use_ldaps=options.ldaps,
+            __print=True
+        )
+
+    # Loading targets line by line from a targets file
+    if options.targets_file is not None:
+        if os.path.exists(options.targets_file):
+            if options.debug:
+                print("[debug] Loading targets line by line from targets file '%s'" % options.targets_file)
+            f = open(options.targets_file, "r")
+            for line in f.readlines():
+                targets.append(line.strip())
+            f.close()
+        else:
+            print("[!] Could not open targets file '%s'" % options.targets_file)
+
+    # Loading targets from a single --target option
+    if len(options.target) != 0:
+        if options.debug:
+            print("[debug] Loading targets from --target options")
+        for target in options.target:
+            targets.append(target)
+
+    # Loading targets from a single --target-url option
+    if len(options.target_url) != 0:
+        if options.debug:
+            print("[debug] Loading targets from --target-url options")
+        for target in options.target_url:
+            targets.append(target)
+
+    # Loading target URLs line by line from a targets urls file
+    if options.targets_urls_file is not None:
+        if os.path.exists(options.targets_urls_file):
+            if options.debug:
+                print("[debug] Loading target URLs line by line from targets urls file '%s'" % options.targets_urls_file)
+            f = open(options.targets_urls_file, "r")
+            for line in f.readlines():
+                targets.append(line.strip())
+            f.close()
+        else:
+            print("[!] Could not open targets urls file '%s'" % options.targets_file)
+
+    # Sort uniq on targets list
+    targets = sorted(list(set(targets)))
+
+    final_targets = []
+    # Parsing target to filter IP/DNS/CIDR
+    for target in targets:
+        if target.startswith("http://") or target.startswith("https://"):
+            target = urllib.parse.urlparse(target).netloc
+        #
+        if is_ipv4_cidr(target):
+            final_targets += [("ip", ip) for ip in expand_cidr(target)]
+        elif is_ipv4_addr(target):
+            final_targets.append(("ipv4", target))
+        elif is_ipv6_addr(target):
+            final_targets.append(("ipv6", target))
+        elif is_fqdn(target):
+            final_targets.append(("fqdn", target))
+        else:
+            if options.debug:
+                print("[debug] Target '%s' was not added." % target)
+
+    final_targets = sorted(list(set(final_targets)))
+    return final_targets
 
 
 if __name__ == '__main__':
@@ -745,60 +898,50 @@ if __name__ == '__main__':
     
     # Use AES Authentication key if available
     if options.auth_key is not None:
-        options.use_kerberos = True
-    if options.use_kerberos is True and options.kdcHost is None:
+        options.auth_use_kerberos = True
+    if options.auth_use_kerberos is True and options.auth_kdcHost is None:
         print("[!] Specify KDC's Hostname of FQDN using the argument --kdcHost")
         exit()
 
     try:
-        mdns = MicrosoftDNS(
-            dnsserver=options.dc_ip,
-            auth_domain=options.auth_domain,
-            auth_username=options.auth_username,
-            auth_password=options.auth_password,
-            auth_dc_ip=options.dc_ip,
-            auth_lm_hash=auth_lm_hash,
-            auth_nt_hash=auth_nt_hash,
-            use_ldaps=options.use_ldaps,
-            verbose=options.verbose
-        )
-        mdns.check_presence_of_wildcard_dns()
+        if options.auth_dc_ip is not None and options.auth_user is not None and (options.auth_password is not None or options.auth_hashes is not None):
+            mdns = MicrosoftDNS(
+                dnsserver=options.auth_dc_ip,
+                auth_domain=options.auth_domain,
+                auth_username=options.auth_user,
+                auth_password=options.auth_password,
+                auth_dc_ip=options.auth_dc_ip,
+                auth_lm_hash=auth_lm_hash,
+                auth_nt_hash=auth_nt_hash,
+                use_ldaps=options.ldaps,
+                verbose=options.verbose
+            )
+            mdns.check_presence_of_wildcard_dns()
 
         if not options.quiet:
-            print("[>] Extracting all computers ...")
+            print("[>] Parsing targets ...")
+            sys.stdout.flush()
 
-        computers = raw_ldap_query(
-            auth_domain=options.auth_domain,
-            auth_dc_ip=options.dc_ip,
-            auth_username=options.auth_username,
-            auth_password=options.auth_password,
-            auth_hashes=options.auth_hashes,
-            query=options.ldap_query,
-            use_ldaps=options.use_ldaps,
-            attributes=["dNSHostName", "sAMAccountName"]
-        )
+        targets = load_targets(options)
 
         if not options.quiet:
-            print("[+] Found %d computers in the domain. \n" % len(computers.keys()))
+            print("[+] Found %d computers in the domain. \n" % len(targets))
             print("[>] Enumerating shares ...")
 
         results = {}
-
-        if len(computers.keys()) != 0:
+        if len(targets) != 0:
             # Setup thread lock to properly write in the file
             lock = threading.Lock()
             # Waits for all the threads to be completed
-            with ThreadPoolExecutor(max_workers=min(options.threads, len(computers.keys()))) as tp:
-                for ck in computers.keys():
-                    computer = computers[ck]
+            with ThreadPoolExecutor(max_workers=min(options.threads, len(targets))) as tp:
+                for t in targets:
                     tp.submit(
                         worker,
                         options,
-                        computer['dNSHostName'],
+                        t,
                         options.auth_domain,
-                        options.auth_username,
+                        options.auth_user,
                         options.auth_password,
-                        computer['dNSHostName'],
                         auth_lm_hash,
                         auth_nt_hash,
                         results,
@@ -814,7 +957,7 @@ if __name__ == '__main__':
             if options.export_sqlite is not None:
                 export_sqlite(options, results)
         else:
-            print("[!] No computers in the domain found matching filter '%s'" % options.ldap_query)
+            print("[!] No computers parsed from the targets.")
         print("[+] Bye Bye!")
 
     except Exception as e:
