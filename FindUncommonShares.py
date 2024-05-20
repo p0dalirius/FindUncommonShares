@@ -235,9 +235,9 @@ def STYPE_MASK(stype_value):
         flags.append("STYPE_DEVICE")
     elif (stype_value & 0b11) == known_flags["STYPE_IPC"]:
         flags.append("STYPE_IPC")
-    if (stype_value & known_flags["STYPE_SPECIAL"]) == 0:
+    if (stype_value & known_flags["STYPE_SPECIAL"]) == known_flags["STYPE_SPECIAL"]:
         flags.append("STYPE_SPECIAL")
-    if (stype_value & known_flags["STYPE_TEMPORARY"]) == 0:
+    if (stype_value & known_flags["STYPE_TEMPORARY"]) == known_flags["STYPE_TEMPORARY"]:
         flags.append("STYPE_TEMPORARY")
     return flags
 
