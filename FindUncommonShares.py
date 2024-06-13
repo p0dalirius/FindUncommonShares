@@ -474,7 +474,7 @@ def parseArgs():
     options = parser.parse_args()
 
     if options.auth_password is None and options.no_pass == False and options.auth_hashes is None:
-        print("[+] No password of hashes provided and --no-pass is '%s'" % options.no_pass)
+        print("[+] No password or hashes provided and --no-pass is '%s'" % options.no_pass)
         from getpass import getpass
         if options.auth_domain is not None:
             options.auth_password = getpass("  | Provide a password for '%s\\%s':" % (options.auth_domain, options.auth_user))
