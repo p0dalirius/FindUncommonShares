@@ -29,54 +29,91 @@
 
  + List all shares where your current user has WRITE access:
     ```
-    ./FindUncommonShares.py -u user -p 'Podalirius123!' -d DOMAIN --dc-ip 192.168.1.71 --writable
+    ./FindUncommonShares.py -au user -ap 'Podalirius123!' -ad DOMAIN --auth-dc-ip 192.168.1.71 --writable
     ```
  
  + Export list of shares in the domain to an Excel file for the client:
    ```
-   ./FindUncommonShares.py -u user -p 'Podalirius123!' -d DOMAIN --dc-ip 192.168.1.71 --export-xlsx ./examples/results.xlsx
+   ./FindUncommonShares.py -au user -ap 'Podalirius123!' -ad DOMAIN --auth-dc-ip 192.168.1.71 --export-xlsx ./examples/results.xlsx
    ```
 
  + List all shares with access rights for your current user:
     ```
-    ./FindUncommonShares.py -u user -p 'Podalirius123!' -d DOMAIN --dc-ip 192.168.1.71 --check-user-access
+    ./FindUncommonShares.py -au user -ap 'Podalirius123!' -ad DOMAIN --auth-dc-ip 192.168.1.71 --check-user-access
     ```
    
 ## Usage
 
 ```              
 $ ./FindUncommonShares.py -h
-FindUncommonShares v3.0 - by @podalirius_
+FindUncommonShares v3.2 - by @podalirius_
 
-usage: FindUncommonShares.py [-h] [-v] [--use-ldaps] [-q] [--debug] [-no-colors] [-t THREADS] [-l LDAP_QUERY] [-ns NAMESERVER]
-                             [--check-user-access] [--readable] [--writable] [-I] [-i IGNORED_SHARES] [-s ACCEPTED_SHARES]
-                             [--export-xlsx EXPORT_XLSX] [--export-json EXPORT_JSON] [--export-sqlite EXPORT_SQLITE] --dc-ip ip
-                             address [-d DOMAIN] [-u USER] [--no-pass | -p PASSWORD | -H [LMHASH:]NTHASH | --aes-key hex key] [-k]
+usage: FindUncommonShares.py [-h] [-v] [-q] [--debug] [-no-colors] [-t THREADS] [-ns NAMESERVER] [-tf TARGETS_FILE] [-tt TARGET] [-tu TARGET_URL]
+                             [-tU TARGETS_URLS_FILE] [-tp TARGET_PORTS] [-ad AUTH_DOMAIN] [-ai AUTH_DC_IP] [-au AUTH_USER] [--ldaps] [--no-ldap] [--subnets]
+                             [-tl TARGET_LDAP_QUERY] [--no-pass | -ap AUTH_PASSWORD | -ah AUTH_HASHES | --aes-key hex key] [-k] [--kdcHost AUTH_KDCHOST]
+                             [--check-user-access] [--readable] [--writable] [-iH] [-iP] [-i IGNORED_SHARES] [-s ACCEPTED_SHARES] [--export-xlsx EXPORT_XLSX]
+                             [--export-json EXPORT_JSON] [--export-sqlite EXPORT_SQLITE]
 
 Find uncommon SMB shares on remote machines.
 
 options:
   -h, --help            show this help message and exit
   -v, --verbose         Verbose mode. (default: False).
-  --use-ldaps           Use LDAPS instead of LDAP.
   -q, --quiet           Show no information at all.
   --debug               Debug mode. (default: False).
   -no-colors            Disables colored output mode.
   -t THREADS, --threads THREADS
                         Number of threads (default: 20).
-  -l LDAP_QUERY, --ldap-query LDAP_QUERY
-                        LDAP query to use to extract computers from the domain.
   -ns NAMESERVER, --nameserver NAMESERVER
                         IP of the DNS server to use, instead of the --dc-ip.
+
+Targets:
+  -tf TARGETS_FILE, --targets-file TARGETS_FILE
+                        Path to file containing a line by line list of targets.
+  -tt TARGET, --target TARGET
+                        Target IP, FQDN or CIDR.
+  -tu TARGET_URL, --target-url TARGET_URL
+                        Target URL to the tomcat manager.
+  -tU TARGETS_URLS_FILE, --targets-urls-file TARGETS_URLS_FILE
+                        Path to file containing a line by line list of target URLs.
+  -tp TARGET_PORTS, --target-ports TARGET_PORTS
+                        Target ports to scan top search for Apache Tomcat servers.
+  -ad AUTH_DOMAIN, --auth-domain AUTH_DOMAIN
+                        Windows domain to authenticate to.
+  -ai AUTH_DC_IP, --auth-dc-ip AUTH_DC_IP
+                        IP of the domain controller.
+  -au AUTH_USER, --auth-user AUTH_USER
+                        Username of the domain account.
+  --ldaps               Use LDAPS (default: False)
+  --no-ldap             Do not perform LDAP queries.
+  --subnets             Get all subnets from the domain and use them as targets (default: False)
+  -tl TARGET_LDAP_QUERY, --target-ldap-query TARGET_LDAP_QUERY
+                        LDAP query to use to extract computers from the domain.
+
+Credentials:
+  --no-pass             Don't ask for password (useful for -k)
+  -ap AUTH_PASSWORD, --auth-password AUTH_PASSWORD
+                        Password of the domain account.
+  -ah AUTH_HASHES, --auth-hashes AUTH_HASHES
+                        LM:NT hashes to pass the hash for this user.
+  --aes-key hex key     AES key to use for Kerberos Authentication (128 or 256 bits)
+  -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If valid credentials cannot
+                        be found, it will use the ones specified in the command line
+  --kdcHost AUTH_KDCHOST
+                        IP of the domain controller.
+
+Shares:
   --check-user-access   Check if current user can access the share.
   --readable            Only list shares that current user has READ access to.
   --writable            Only list shares that current user has WRITE access to.
-  -I, --ignore-hidden-shares
+  -iH, --ignore-hidden-shares
                         Ignores hidden shares (shares ending with $)
+  -iP, --ignore-print-queues
+                        Ignores print queues (shares of STYPE_PRINTQ)
   -i IGNORED_SHARES, --ignore-share IGNORED_SHARES
-                        Specify shares to ignore explicitly. (e.g., --ignore-share 'C$' --ignore-share 'Backup')
+                        Specify shares to ignore explicitly. (e.g., --ignore-share "C$" --ignore-share "Backup")
   -s ACCEPTED_SHARES, --show-share ACCEPTED_SHARES
-                        Specify shares to show explicitly. (e.g., --show-share 'C$' --show-share 'Backup')
+                        Specify shares to show explicitly. (e.g., --show-share "C$" --show-share "Backup")
 
 Output files:
   --export-xlsx EXPORT_XLSX
@@ -85,23 +122,6 @@ Output files:
                         Output JSON file to store the results in.
   --export-sqlite EXPORT_SQLITE
                         Output SQLITE3 file to store the results in.
-
-Authentication & connection:
-  --dc-ip ip address    IP Address of the domain controller or KDC (Key Distribution Center) for Kerberos. If omitted it will use the
-                        domain part (FQDN) specified in the identity parameter
-  -d DOMAIN, --domain DOMAIN
-                        (FQDN) domain to authenticate to
-  -u USER, --user USER  user to authenticate with
-
-Credentials:
-  --no-pass             Don't ask for password (useful for -k)
-  -p PASSWORD, --password PASSWORD
-                        Password to authenticate with
-  -H [LMHASH:]NTHASH, --hashes [LMHASH:]NTHASH
-                        NT/LM hashes, format is LMhash:NThash
-  --aes-key hex key     AES key to use for Kerberos Authentication (128 or 256 bits)
-  -k, --kerberos        Use Kerberos authentication. Grabs credentials from .ccache file (KRB5CCNAME) based on target parameters. If
-                        valid credentials cannot be found, it will use the ones specified in the command line
 ```
 
 ## Exported results
