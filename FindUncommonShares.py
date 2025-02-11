@@ -417,7 +417,7 @@ def dns_resolve(options, target_name):
 
 
 def parseArgs():
-    print("FindUncommonShares v%s - by @podalirius_\n" % VERSION)
+    print("FindUncommonShares v%s - by Remi GASCOU (Podalirius)\n" % VERSION)
 
     parser = argparse.ArgumentParser(add_help=True, description="Find uncommon SMB shares on remote machines.")
 
